@@ -1,0 +1,32 @@
+{
+  "name": "wml-lib",
+  "version": "0.1.0",
+  "description": "WML (WASM Module Language) compiler — a high-level IR that compiles to WebAssembly",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "wml": "./src/cli/index.js"
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.js'",
+    "test:parser": "node --test 'test/parser/**/*.test.js'",
+    "test:validator": "node --test 'test/validator/**/*.test.js'",
+    "test:emitter": "node --test 'test/emitter/**/*.test.js'",
+    "test:features": "node --test 'test/features/**/*.test.js'"
+  },
+  "peerDependencies": {
+    "binaryen": ">=119.0.0",
+    "chokidar": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "binaryen": { "optional": true },
+    "chokidar": { "optional": true }
+  },
+  "engines": {
+    "node": ">=21.0.0"
+  },
+  "license": "MIT"
+}
