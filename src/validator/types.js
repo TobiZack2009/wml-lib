@@ -140,6 +140,11 @@ export const isUnsigned = t => isPrim(t) && t.signed === false;
 /** @param {Object} t @returns {boolean} */
 export const isSIMD = t => t?.kind === 'simd';
 
+// ── Integer compatibility groups ────────────────────────────────────────────
+
+const I32_GROUP = new Set(['i8','i16','i32','u8','u16','u32','isize','usize']);
+const I64_GROUP = new Set(['i64','u64']);
+
 /**
  * Check if two integer types are compatible (i32/u32 are interchangeable).
  * @param {Object} a
@@ -150,10 +155,8 @@ export function intCompat(a, b) {
   if (isError(a) || isError(b)) return true;
   if (a === b) return true;
   // i32/u32 and i64/u64 are the same WASM type
-  const i32group = new Set(['i8','i16','i32','u8','u16','u32','isize','usize']);
-  const i64group = new Set(['i64','u64']);
-  if (i32group.has(a?.name) && i32group.has(b?.name)) return true;
-  if (i64group.has(a?.name) && i64group.has(b?.name)) return true;
+  if (I32_GROUP.has(a?.name) && I32_GROUP.has(b?.name)) return true;
+  if (I64_GROUP.has(a?.name) && I64_GROUP.has(b?.name)) return true;
   return false;
 }
 

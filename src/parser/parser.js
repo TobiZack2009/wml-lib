@@ -40,6 +40,12 @@ const DECL_RECOVERY = new Set([T.KW_TYPE, T.KW_MEMORY, T.KW_TABLE, T.KW_DATA,
   T.KW_ELEM, T.KW_TAG, T.KW_SECTION, T.KW_REC, T.AT_EXPORT, T.AT_IMPORT,
   T.AT_START, T.PRAGMA_OPEN, T.IDENT, T.EOF]);
 
+// Reusable Sets for type/data parsing
+const NUMERIC_TOKS = new Set(['i8','i16','i32','i64','isize','u8','u16','u32','u64','usize',
+  'f32','f64','v128','i8x16','i16x8','i32x4','i64x2','f32x4','f64x2']);
+const DATA_NUMERIC = new Set(['i8','i16','i32','i64','isize','u8','u16','u32','u64','usize','f32','f64']);
+const STR_TYPES    = new Set(['cstr','utf8_32','utf8_64','pascal']);
+
 export class Parser {
   /**
    * @param {import('./lexer.js').Token[]} tokens
@@ -83,11 +89,6 @@ export class Parser {
 
   loc(tok) {
     return AST.locFrom(tok);
-  }
-
-  spanFrom(tok) {
-    const cur = this.tokens[this.pos - 1] ?? tok;
-    return AST.span(AST.locFrom(tok), AST.locFrom(cur));
   }
 
   // ── Error handling ──────────────────────────────────────────────────────
@@ -1149,9 +1150,7 @@ export class Parser {
   }
 
   isNumericTypeToken(tok) {
-    const numericToks = new Set(['i8','i16','i32','i64','isize','u8','u16','u32','u64','usize',
-      'f32','f64','v128','i8x16','i16x8','i32x4','i64x2','f32x4','f64x2']);
-    return numericToks.has(tok.value);
+    return NUMERIC_TOKS.has(tok.value);
   }
 
   // ── Type expressions ────────────────────────────────────────────────────
@@ -1273,8 +1272,7 @@ export class Parser {
   parseDataType() {
     const tok = this.peek();
     // Typed array: i32[] i8[] f64[] etc
-    const numericToks = new Set(['i8','i16','i32','i64','isize','u8','u16','u32','u64','usize','f32','f64']);
-    if (numericToks.has(tok.value)) {
+    if (DATA_NUMERIC.has(tok.value)) {
       this.advance();
       if (this.check(T.LBRACKET) && this.peekAt(1).type === T.RBRACKET) {
         this.advance(); this.advance();
@@ -1283,8 +1281,7 @@ export class Parser {
       return { kind: 'ScalarDataType', elemType: tok.value };
     }
     // String types
-    const strTypes = new Set(['cstr','utf8_32','utf8_64','pascal']);
-    if (strTypes.has(tok.value)) {
+    if (STR_TYPES.has(tok.value)) {
       this.advance();
       return { kind: 'StringDataType', strType: tok.value };
     }
@@ -1320,16 +1317,14 @@ export class Parser {
   parseDataItem() {
     const tok = this.peek();
     // String type prefix: cstr "hello"
-    const strTypes = new Set(['cstr','utf8_32','utf8_64','pascal']);
-    if (strTypes.has(tok.value)) {
+    if (STR_TYPES.has(tok.value)) {
       const strType = tok.value;
       this.advance();
       const strTok = this.expect(T.STRING_LIT);
       return AST.stringLit(strTok.value, strType, this.loc(tok));
     }
     // Typed array: i32[1,2,3]
-    const numericToks = new Set(['i8','i16','i32','i64','isize','u8','u16','u32','u64','usize','f32','f64']);
-    if (numericToks.has(tok.value) && this.peekAt(1).type === T.LBRACKET) {
+    if (DATA_NUMERIC.has(tok.value) && this.peekAt(1).type === T.LBRACKET) {
       const typeName = this.advance().value;
       this.advance(); // consume [
       const items = [];

@@ -54,10 +54,13 @@ export class Linker {
 
       for (const decl of src.ast.decls ?? []) {
         const decorators = decl.decorators ?? [];
-        const isExport   = decorators.some(d => d.name === 'export');
-        const isImport   = decorators.find(d => d.name === 'import');
-        const isStart    = decorators.some(d => d.name === 'start');
-        const name       = decl.name;
+        let isExport = false, isImport = null, isStart = false;
+        for (const d of decorators) {
+          if (d.name === 'export') isExport = true;
+          else if (d.name === 'import') isImport = d;
+          else if (d.name === 'start') isStart = true;
+        }
+        const name = decl.name;
 
         // Handle @start collection
         if (isStart && decl.kind === 'FuncDecl') {
@@ -107,7 +110,8 @@ export class Linker {
         for (const [k, v] of src.symbols) exposed.set(k, v);
       } else if (exposeNames) {
         for (const k of exposeNames) {
-          if (src.symbols.has(k)) exposed.set(k, src.symbols.get(k));
+          const v = src.symbols.get(k);
+          if (v) exposed.set(k, v);
           else {
             this.errors.push(mkError('E200',
               `Cannot expose '${k}' — symbol not found in ${src.name}`,

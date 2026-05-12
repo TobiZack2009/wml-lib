@@ -40,7 +40,9 @@ export class TypeChecker {
     /** @type {import('../diagnostics/errors.js').Diagnostic[]} */
     this.errors = [];
     /** Resolved type cache for declarations */
-    this.typeCache = new Map();
+    this.typeCache = new WeakMap();
+    /** @type {WeakMap<object,boolean>} */
+    this._isLinearCache = new WeakMap();
     /** Current function being checked */
     this.currentFunc = null;
   }
@@ -61,34 +63,47 @@ export class TypeChecker {
 
   resolveType(typeExpr) {
     if (!typeExpr) return Ty.Types.error;
+    const cached = this.typeCache.get(typeExpr);
+    if (cached !== undefined) return cached;
+    let result;
     switch (typeExpr.kind) {
       case 'PrimitiveType':
       case 'RefType': {
         const t = Ty.resolveBuiltin(typeExpr.name);
-        return t ?? Ty.Types.error;
+        result = t ?? Ty.Types.error;
+        break;
       }
       case 'NamedType': {
         const sym = this.symbols.get(typeExpr.name) ?? this.exposed.get(typeExpr.name);
-        if (!sym) return Ty.Types.error;
-        if (sym.kind === 'TypeDecl') return this.resolveType(sym.typeExpr);
-        return Ty.Types.error;
+        if (!sym) { result = Ty.Types.error; break; }
+        if (sym.kind === 'TypeDecl') { result = this.resolveType(sym.typeExpr); break; }
+        result = Ty.Types.error;
+        break;
       }
       case 'FuncRefType':
-        return Ty.funcRefType(typeExpr.typeParam ? this.resolveType(typeExpr.typeParam) : null);
+        result = Ty.funcRefType(typeExpr.typeParam ? this.resolveType(typeExpr.typeParam) : null);
+        break;
       case 'FuncType':
-        return Ty.funcType(
+        result = Ty.funcType(
           (typeExpr.params ?? []).map(p => this.resolveType(p)),
           (typeExpr.results ?? []).map(r => this.resolveType(r))
         );
+        break;
       case 'ArrayType':
-        return Ty.arrayType('', { elemType: this.resolveType(typeExpr.elemType), isMut: typeExpr.isMut });
+        result = Ty.arrayType('', { elemType: this.resolveType(typeExpr.elemType), isMut: typeExpr.isMut });
+        break;
       case 'PointerType':
-        return Ty.pointerType(this.resolveType(typeExpr.baseType), typeExpr.memory);
+        result = Ty.pointerType(this.resolveType(typeExpr.baseType), typeExpr.memory);
+        break;
       case 'StructType':
-        return Ty.structType('', typeExpr);
+        result = Ty.structType('', typeExpr);
+        break;
       default:
-        return Ty.Types.error;
+        result = Ty.Types.error;
+        break;
     }
+    this.typeCache.set(typeExpr, result);
+    return result;
   }
 
   // ── Top-level declarations ───────────────────────────────────────────────
@@ -122,8 +137,12 @@ export class TypeChecker {
 
   /** @param {Object} typeExpr */
   isLinear(typeExpr) {
-    return typeExpr?.kind === 'StructType' &&
-      typeExpr.pragmas?.some(p => p.name === 'linear');
+    if (!typeExpr || typeExpr.kind !== 'StructType') return false;
+    const cached = this._isLinearCache.get(typeExpr);
+    if (cached !== undefined) return cached;
+    const result = typeExpr.pragmas?.some(p => p.name === 'linear');
+    this._isLinearCache.set(typeExpr, result);
+    return result;
   }
 
   /** @param {Object} decl */

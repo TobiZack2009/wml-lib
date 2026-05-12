@@ -239,7 +239,10 @@ export class ScopeChecker {
         const currentLabels = this.loopLabelStack[this.loopLabelStack.length - 1];
         if (!currentLabels?.has(stmt.label)) {
           // Check if it belongs to an outer loop
-          const inOuter = this.loopLabelStack.slice(0, -1).some(s => s.has(stmt.label));
+          let inOuter = false;
+          for (let i = 0; i < this.loopLabelStack.length - 1; i++) {
+            if (this.loopLabelStack[i].has(stmt.label)) { inOuter = true; break; }
+          }
           if (inOuter) {
             this.err('E216', `Cannot goto '${stmt.label}' — label belongs to an outer loop`,
               'goto can only target labels within the same loop', null, stmt.loc);
@@ -317,19 +320,18 @@ export class ScopeChecker {
     switch (expr.kind) {
       case 'Ident': {
         const name = expr.name;
-        const inLocal = scope?.has(name);
-        const inModule = this.symbols.has(name) || this.exposed.has(name);
+        const localSym = scope?.get(name);
+        const inLocal = localSym !== undefined;
+        const moduleSym = this.symbols.get(name) ?? this.exposed.get(name);
+        const inModule = moduleSym !== undefined;
         if (!inLocal && !inModule) {
           this.err('E200', `'${name}' is not defined`, '', null, expr.loc);
         }
         if (isConst) {
           if (inLocal) {
             this.err('E303', `Local '${name}' cannot be used in a constant expression`, '', null, expr.loc);
-          } else {
-            const sym = this.symbols.get(name) ?? this.exposed.get(name);
-            if (sym?.kind === 'GlobalDecl' && sym.isMut) {
-              this.err('E301', `Mutable global '${name}' cannot be used in a constant expression`, '', null, expr.loc);
-            }
+          } else if (moduleSym?.kind === 'GlobalDecl' && moduleSym.isMut) {
+            this.err('E301', `Mutable global '${name}' cannot be used in a constant expression`, '', null, expr.loc);
           }
         }
         break;

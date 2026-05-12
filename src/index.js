@@ -127,15 +127,17 @@ export async function compile(input, options = {}) {
   const { ast: linkedAst, errors: linkErrors, symbols } = linker.link();
   const allErrors = [...allParseErrors, ...allValErrors, ...linkErrors];
 
-  // Filter warnings if needed
-  let diagnostics = noWarn ? allErrors.filter(e => e.severity !== 'warning') : allErrors;
-  if (warnAsError) diagnostics = diagnostics.map(d =>
-    d.severity === 'warning' ? { ...d, severity: 'error' } : d
-  );
-
-  const errors   = diagnostics.filter(d => d.severity === 'error');
-  const warnings = diagnostics.filter(d => d.severity === 'warning');
-  const ok       = errors.length === 0;
+  // Filter warnings if needed — single pass
+  let errorCount = 0, warningCount = 0;
+  const diagnostics = [];
+  for (const d of allErrors) {
+    if (noWarn && d.severity === 'warning') continue;
+    const diag = warnAsError && d.severity === 'warning' ? { ...d, severity: 'error' } : d;
+    if (diag.severity === 'error') errorCount++;
+    else warningCount++;
+    diagnostics.push(diag);
+  }
+  const ok = errorCount === 0;
 
   // Don't emit if there are errors
   if (!ok) {
@@ -143,7 +145,7 @@ export async function compile(input, options = {}) {
       ok: false,
       output: null,
       diagnostics: groupByFile(diagnostics),
-      summary: { errors: errors.length, warnings: warnings.length },
+      summary: { errors: errorCount, warnings: warningCount },
     };
   }
 
@@ -166,7 +168,7 @@ export async function compile(input, options = {}) {
         ok: false,
         output: null,
         diagnostics: groupByFile(diagnostics),
-        summary: { errors: errors.length + 1, warnings: warnings.length },
+        summary: { errors: errorCount + 1, warnings: warningCount },
       };
     }
     output = wasm;
@@ -178,7 +180,7 @@ export async function compile(input, options = {}) {
     ok: true,
     output,
     diagnostics: groupByFile(diagnostics),
-    summary: { errors: 0, warnings: warnings.length },
+    summary: { errors: 0, warnings: warningCount },
   };
 }
 
@@ -208,13 +210,15 @@ export async function validate(input, options = {}) {
     }
   }
 
-  let diagnostics = noWarn ? allErrors.filter(e => e.severity !== 'warning') : allErrors;
-  if (warnAsError) diagnostics = diagnostics.map(d =>
-    d.severity === 'warning' ? { ...d, severity: 'error' } : d
-  );
-
-  const errorCount   = diagnostics.filter(d => d.severity === 'error').length;
-  const warningCount = diagnostics.filter(d => d.severity === 'warning').length;
+  let errorCount = 0, warningCount = 0;
+  const diagnostics = [];
+  for (const d of allErrors) {
+    if (noWarn && d.severity === 'warning') continue;
+    const diag = warnAsError && d.severity === 'warning' ? { ...d, severity: 'error' } : d;
+    if (diag.severity === 'error') errorCount++;
+    else warningCount++;
+    diagnostics.push(diag);
+  }
 
   return {
     ok:          errorCount === 0,
@@ -246,25 +250,22 @@ function parseSource(name, content) {
  */
 async function normalizeSources(input) {
   const items = Array.isArray(input) ? input : [input];
-  const sources = [];
 
-  for (const item of items) {
+  const results = await Promise.all(items.map(async item => {
     if (typeof item === 'string') {
-      // File path
       let content;
       try {
         content = await readFile(item, 'utf8');
       } catch (e) {
         throw new Error(`Cannot read file '${item}': ${e.message}`);
       }
-      sources.push({ name: item, content, expose: undefined });
-    } else if (item && typeof item === 'object' && 'content' in item) {
-      // Source object
-      sources.push({ name: item.name ?? 'source', content: item.content, expose: item.expose });
-    } else {
-      throw new TypeError(`Invalid input item: expected file path or { name, content } object`);
+      return { name: item, content, expose: undefined };
     }
-  }
+    if (item && typeof item === 'object' && 'content' in item) {
+      return { name: item.name ?? 'source', content: item.content, expose: item.expose };
+    }
+    throw new TypeError(`Invalid input item: expected file path or { name, content } object`);
+  }));
 
-  return sources;
+  return results;
 }
