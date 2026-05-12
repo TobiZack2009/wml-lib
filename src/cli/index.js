@@ -7,12 +7,12 @@
  *   wml validate <files...> [options]
  *
  * Options:
- *   --emit=wat|wasm        Output format (default: wat)
+ *   --emit wat|wasm        Output format (default: wat)
  *   --debug                Include name section and source maps
  *   --watch                Recompile on file change (requires chokidar)
- *   --format=text|json     Diagnostic format (default: text)
- *   --context=N            Source context lines in text output (default: 1)
- *   --max-errors=N         Max errors before truncation (default: 20)
+ *   --format text|json     Diagnostic format (default: text)
+ *   --context N            Source context lines in text output (default: 1)
+ *   --max-errors N         Max errors before truncation (default: 20)
  *   --no-warn              Suppress all warnings
  *   --warn-as-error        Treat warnings as errors
  *   --no-color             Disable ANSI colors
@@ -38,13 +38,13 @@ USAGE
   wml validate <files...> [options]
 
 OPTIONS
-  --emit=wat|wasm        Output format (default: wat)
-  --out=<path>           Output file path (default: stdout / <name>.wat or <name>.wasm)
+  --emit wat|wasm        Output format (default: wat)
+  --out <path>           Output file path (default: stdout / <name>.wat or <name>.wasm)
   --debug                Include name section and source maps
   --watch                Recompile on file change (requires chokidar peer dependency)
-  --format=text|json     Diagnostic format (default: text)
-  --context=N            Source context lines in text output (default: 1)
-  --max-errors=N         Max errors before truncation (default: 20)
+  --format text|json     Diagnostic format (default: text)
+  --context N            Source context lines in text output (default: 1)
+  --max-errors N         Max errors before truncation (default: 20)
   --no-warn              Suppress all warnings
   --warn-as-error        Treat warnings as errors
   --no-color             Disable ANSI colors
@@ -78,13 +78,13 @@ function parseArgs(argv) {
   for (const arg of argv) {
     if (arg === '--help' || arg === '-h')         { console.log(HELP); process.exit(0); }
     if (arg === '--version' || arg === '-v')      { console.log(`wml ${VERSION}`); process.exit(0); }
-    if (arg.startsWith('--emit='))                options.emit        = arg.slice(7);
-    else if (arg.startsWith('--out='))            options.out         = arg.slice(6);
+    if (arg.startsWith('--emit'))                options.emit        = arg.slice(7);
+    else if (arg.startsWith('--out'))            options.out         = arg.slice(6);
     else if (arg === '--debug')                   options.debug       = true;
     else if (arg === '--watch')                   options.watch       = true;
-    else if (arg.startsWith('--format='))         options.format      = arg.slice(9);
-    else if (arg.startsWith('--context='))        options.context     = parseInt(arg.slice(10), 10);
-    else if (arg.startsWith('--max-errors='))     options.maxErrors   = parseInt(arg.slice(13), 10);
+    else if (arg.startsWith('--format'))         options.format      = arg.slice(9);
+    else if (arg.startsWith('--context'))        options.context     = parseInt(arg.slice(10), 10);
+    else if (arg.startsWith('--max-errors'))     options.maxErrors   = parseInt(arg.slice(13), 10);
     else if (arg === '--no-warn')                 options.noWarn      = true;
     else if (arg === '--warn-as-error')           options.warnAsError = true;
     else if (arg === '--no-color')                options.color       = false;
