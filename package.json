@@ -18,12 +18,16 @@
     "test:features": "node --test 'test/features/**/*.test.js'"
   },
   "peerDependencies": {
-    "binaryen": ">=119.0.0",
+    "binaryen": "^129.0.0",
     "chokidar": ">=3.0.0"
   },
   "peerDependenciesMeta": {
-    "binaryen": { "optional": true },
-    "chokidar": { "optional": true }
+    "binaryen": {
+      "optional": true
+    },
+    "chokidar": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=21.0.0"
