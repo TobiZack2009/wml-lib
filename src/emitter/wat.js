@@ -118,9 +118,10 @@ export class WatEmitter {
   }
 
   emitTypeSection() {
-    // GC struct/array types via rec group
+    // GC struct/array types via rec group (skip #[linear] structs)
     const gcTypes = [...this.symbols.values()].filter(s =>
-      s.kind === 'TypeDecl' && (s.typeExpr?.kind === 'StructType' || s.typeExpr?.kind === 'ArrayType'));
+      s.kind === 'TypeDecl' && (s.typeExpr?.kind === 'StructType' || s.typeExpr?.kind === 'ArrayType') &&
+      !this.isLinear(s.typeExpr));
 
     if (gcTypes.length > 0) {
       this.write('(rec');
@@ -165,6 +166,12 @@ export class WatEmitter {
       const end = te.isMut ? ')' : '';
       this.write(`(type $${name} (array ${mut}${this.watType(te.elemType)}${end}))`);
     }
+  }
+
+  /** @param {Object} typeExpr */
+  isLinear(typeExpr) {
+    return typeExpr?.kind === 'StructType' &&
+      typeExpr.pragmas?.some(p => p.name === 'linear');
   }
 
   resolveRepr(pragmas) {
