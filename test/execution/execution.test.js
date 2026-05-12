@@ -621,3 +621,78 @@ describe('Float operations', { skip: skipIfNoBinaryen() }, () => {
     assert.equal(sub(10.5, 3.2), 7.3);
   });
 });
+
+// ── #[linear] struct operations ──────────────────────────────────────────────
+
+describe('Linear struct operations', { skip: skipIfNoBinaryen() }, () => {
+  test('read and write field through pointer', async () => {
+    const { setX, setY, getX, getY } = await instantiate(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      @export setX(ptr: *Point, val: i32): () { ptr[0].x = val; }
+      @export setY(ptr: *Point, val: i32): () { ptr[0].y = val; }
+      @export getX(ptr: *Point): i32 { return ptr[0].x; }
+      @export getY(ptr: *Point): i32 { return ptr[0].y; }
+    `);
+    const addr = 0;
+    setX(addr, 42);
+    setY(addr, 99);
+    assert.equal(getX(addr), 42);
+    assert.equal(getY(addr), 99);
+  });
+
+  test('fields at correct offsets', async () => {
+    // y (offset 4) should not overlap with x (offset 0)
+    const { setX, getY } = await instantiate(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      @export setX(ptr: *Point, val: i32): () { ptr[0].x = val; }
+      @export getY(ptr: *Point): i32 { return ptr[0].y; }
+    `);
+    const addr = 0;
+    setX(addr, 42);
+    // getY should NOT return 42 since y is at offset 4
+    assert.equal(getY(addr), 0);
+  });
+
+  test('array of structs via pointer index', async () => {
+    const { setElem, getElem } = await instantiate(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      @export setElem(base: *Point, idx: i32, x: i32, y: i32): () {
+        base[idx].x = x;
+        base[idx].y = y;
+      }
+      @export getElem(base: *Point, idx: i32): i32 {
+        return base[idx].x + base[idx].y;
+      }
+    `);
+    const base = 0;
+    setElem(base, 0, 10, 20);
+    setElem(base, 1, 30, 40);
+    assert.equal(getElem(base, 0), 30);
+    assert.equal(getElem(base, 1), 70);
+  });
+
+  test('struct with i8 and i16 fields', async () => {
+    const { setFlags, getFlags } = await instantiate(`
+      #[linear]
+      type Header = struct { magic: i8; version: i8; flags: i16; };
+      memory Mem = 1;
+      @export setFlags(ptr: *Header, magic: i32, version: i32, flags: i32): () {
+        ptr[0].magic = magic;
+        ptr[0].version = version;
+        ptr[0].flags = flags;
+      }
+      @export getFlags(ptr: *Header): i32 {
+        return ptr[0].flags;
+      }
+    `);
+    const addr = 0;
+    setFlags(addr, 0x41, 0x01, 0x1234);
+    assert.equal(getFlags(addr), 0x1234);
+  });
+});

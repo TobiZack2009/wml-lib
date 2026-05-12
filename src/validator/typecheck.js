@@ -434,7 +434,7 @@ export class TypeChecker {
 
       case 'TestExpr': {
         this.checkExpr(expr.expr, locals);
-        const testType = this.resolveType(expr.typeExpr);
+        const testType = this.resolveType(expr.toType);
         if (testType.kind === 'struct' && this.isLinear(testType.decl)) {
           this.err('E609', `Cannot use a #[linear] struct type in a type test`,
             `'${testType.name}' is #[linear]`, null, expr.loc);

@@ -411,6 +411,19 @@ describe('Pragma features', () => {
       type Compact = struct { x: i8; y: i8; };
     `);
   });
+
+  test('#[linear] struct with pointer access', () => {
+    const r = ok(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): i32 { return ptr[0].x; }
+    `);
+    // Should not have a type entry for #[linear] struct
+    assert.ok(!r.wat.includes('(type $Point'));
+    // Should emit i32.load for field access
+    assert.ok(r.wat.includes('i32.load'));
+  });
 });
 
 // ── Type system features ──────────────────────────────────────────────────

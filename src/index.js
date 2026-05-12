@@ -51,6 +51,9 @@
  * }
  */
 
+export * as AST from './parser/ast.js';
+export { T } from './parser/tokens.js';
+
 import { readFile } from 'node:fs/promises';
 import { Lexer }    from './parser/lexer.js';
 import { Parser }   from './parser/parser.js';

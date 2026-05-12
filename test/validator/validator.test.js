@@ -383,3 +383,73 @@ describe('Additional type errors', () => {
     assert.equal(errors.filter(e => e.severity === 'error').length, 0);
   });
 });
+
+// ── Linear struct errors ───────────────────────────────────────────────────
+
+describe('Linear struct errors', () => {
+  test('E607 new on #[linear] struct', () => {
+    hasCode(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      f(): () { local p: Point = new Point { x: 1, y: 2 }; }
+    `, 'E607');
+  });
+
+  test('E609 cast to #[linear] struct', () => {
+    hasCode(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      f(r: anyref): () { local p: Point = r as Point; }
+    `, 'E609');
+  });
+
+  test('E609 type test on #[linear] struct', () => {
+    hasCode(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      f(r: anyref): i32 { return r is Point; }
+    `, 'E609');
+  });
+
+  test('E609 #[linear] struct extends another type', () => {
+    hasCode(`
+      #[linear]
+      type Base = struct { x: i32; };
+      #[linear]
+      type Derived = struct extends Base { y: i32; };
+    `, 'E609');
+  });
+
+  test('E610 #[linear] struct as param type', () => {
+    hasCode(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      f(p: Point): () { nop; }
+    `, 'E610');
+  });
+
+  test('E610 #[linear] struct as local type', () => {
+    hasCode(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      f(): () { local p: Point; }
+    `, 'E610');
+  });
+
+  test('E610 #[linear] struct as return type', () => {
+    hasCode(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      f(): Point { return 0; }
+    `, 'E610');
+  });
+
+  test('pointer to #[linear] struct is valid', () => {
+    noErrors(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): () { nop; }
+    `);
+  });
+});

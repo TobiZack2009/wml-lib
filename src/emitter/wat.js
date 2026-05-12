@@ -53,6 +53,7 @@ export class WatEmitter {
     this._labelN = 0;
     /** Current function local type map: name -> wat type string */
     this.currentLocals = new Map();
+
   }
 
   // ── Output helpers ──────────────────────────────────────────────────────
@@ -437,8 +438,15 @@ export class WatEmitter {
 
     // Populate local scope for type inference during emission
     this.currentLocals = new Map();
-    for (const p of decl.params ?? []) this.currentLocals.set(p.name, this.watType(p.typeExpr));
-    for (const l of decl.locals ?? []) this.currentLocals.set(l.name, this.watType(l.typeExpr));
+    this.currentTypeMap = new Map();
+    for (const p of decl.params ?? []) {
+      this.currentLocals.set(p.name, this.watType(p.typeExpr));
+      this.currentTypeMap.set(p.name, p.typeExpr);
+    }
+    for (const l of decl.locals ?? []) {
+      this.currentLocals.set(l.name, this.watType(l.typeExpr));
+      this.currentTypeMap.set(l.name, l.typeExpr);
+    }
 
     const exportStr = isExport ? ` (export "${decl.name}")` : '';
     const params    = (decl.params ?? []).map(p => `(param $${p.name} ${this.watType(p.typeExpr)})`).join(' ');
@@ -449,6 +457,8 @@ export class WatEmitter {
     this.indent();
 
     if (locals) this.write(locals);
+    // One temp local for store operations
+    this.write(`(local $__wml_temp i32)`);
 
     // Emit local initializations
     for (const l of decl.locals ?? []) {
@@ -595,11 +605,9 @@ export class WatEmitter {
         // We need to re-emit the object for struct.set
         // WAT struct.set: struct.set $type $field (object) (value)
         // Since we already pushed value, we need to use a local temp
-        const tempLabel = this.freshLabel();
-        const objWatT = this.inferExprWatType(target.object);
-        this.write(`local.set ${tempLabel}_val`);
+        this.write(`local.set $__wml_temp`);
         this.emitExpr(target.object);
-        this.write(`local.get ${tempLabel}_val`);
+        this.write(`local.get $__wml_temp`);
         const typeName = this.structTypeName(target.object);
         this.write(`struct.set $${typeName} $${target.field}`);
         break;
@@ -607,15 +615,22 @@ export class WatEmitter {
       case 'IndexExpr': {
         // For GC arrays: array.set
         // For pointers: memory store
-        this.emitExpr(target.object);
-        this.emitExpr(target.index);
-        // Value is on stack from before — we need to rearrange
-        // This is simplified; a production emitter would use temporaries
+        // emitAssign already pushed value: stack = [value]
+        // array.set expects [ref] [index] [value] with value on top
+        // i32.store expects [address] [value] with value on top
         const typeName = this.arrayTypeName(target.object);
         if (typeName) {
+          this.write(`local.set $__wml_temp`);
+          this.emitExpr(target.object);
+          this.emitExpr(target.index);
+          this.write(`local.get $__wml_temp`);
           this.write(`array.set $${typeName}`);
         } else {
-          // Pointer store — type determines store instruction
+          this.write(`local.set $__wml_temp`);
+          this.emitExpr(target.object);
+          this.emitExpr(target.index);
+          this.write(`i32.add`);
+          this.write(`local.get $__wml_temp`);
           const watT = this.inferExprWatType(target);
           this.write(`${watT}.store`);
         }
@@ -623,9 +638,28 @@ export class WatEmitter {
       }
       case 'IndexFieldExpr': {
         const typeName = this.structTypeName(target.object);
-        this.emitExpr(target.object);
-        this.emitExpr(target.index);
-        this.write(`struct.set $${typeName} $${target.field}`);
+        if (typeName) {
+          const sym = this.symbols.get(typeName);
+          if (sym?.typeExpr && this.isLinear(sym.typeExpr)) {
+            // #[linear] struct through pointer: ptr[n].field = val
+            // emitAssign already pushed value; save it, compute address, restore
+            this.write(`local.set $__wml_temp`);
+            this.emitExpr(target.object);
+            this.emitExpr(target.index);
+            const size = this.computeStructSize(sym.typeExpr, sym.typeExpr.pragmas ?? []);
+            this.write(`i32.const ${size}`);
+            this.write(`i32.mul`);
+            this.write(`i32.add`);
+            const offset = this.computeFieldOffset(typeName, target.field);
+            this.write(`local.get $__wml_temp`);
+            const fieldType = this.getFieldType(typeName, target.field);
+            this.write(`${fieldType}.store offset=${offset}`);
+          } else {
+            this.emitExpr(target.object);
+            this.emitExpr(target.index);
+            this.write(`struct.set $${typeName} $${target.field}`);
+          }
+        }
         break;
       }
     }
@@ -1183,12 +1217,37 @@ export class WatEmitter {
   }
 
   emitIndexField(expr) {
-    this.emitExpr(expr.object);
-    this.emitExpr(expr.index);
     const typeName = this.structTypeName(expr.object);
     if (typeName) {
-      this.write(`struct.get $${typeName} $${expr.field}`);
+      const sym = this.symbols.get(typeName);
+      if (sym?.typeExpr && this.isLinear(sym.typeExpr)) {
+        // #[linear] struct through pointer: ptr[n].field
+        // Address = ptr + n * sizeof(T) + field_offset
+        this.emitExpr(expr.object);
+        this.emitExpr(expr.index);
+        const size = this.computeStructSize(sym.typeExpr, sym.typeExpr.pragmas ?? []);
+        this.write(`i32.const ${size}`);
+        this.write(`i32.mul`);
+        this.write(`i32.add`);
+        const offset = this.computeFieldOffset(typeName, expr.field);
+        const fieldType = this.getFieldType(typeName, expr.field);
+        this.write(`${fieldType}.load offset=${offset}`);
+      } else {
+        this.emitExpr(expr.object);
+        this.emitExpr(expr.index);
+        this.write(`struct.get $${typeName} $${expr.field}`);
+      }
     }
+  }
+
+  /** @param {string} typeName @param {string} fieldName */
+  getFieldType(typeName, fieldName) {
+    const sym = this.symbols.get(typeName);
+    const te  = sym?.typeExpr;
+    if (te?.kind !== 'StructType') return 'i32';
+    const field = te.fields?.find(f => f.name === fieldName);
+    if (!field) return 'i32';
+    return this.watType(field.typeExpr);
   }
 
   emitIfExpr(expr) {
@@ -1290,18 +1349,114 @@ export class WatEmitter {
   structTypeName(expr) {
     if (!expr) return null;
     if (expr.kind === 'Ident') {
+      // Check function-level params/locals first
+      const te = this.currentTypeMap?.get(expr.name);
+      if (te) {
+        if (te?.kind === 'NamedType') return te.name;
+        if (te?.kind === 'PointerType' && te.baseType?.kind === 'NamedType') {
+          return te.baseType.name;
+        }
+        return null;
+      }
+      // Then check module-level symbols
       const sym = this.symbols.get(expr.name);
       if (sym?.kind === 'LocalDecl' || sym?.kind === 'Param' || sym?.kind === 'GlobalDecl') {
         const type = sym.typeExpr;
         if (type?.kind === 'NamedType') return type.name;
+        if (type?.kind === 'PointerType' && type.baseType?.kind === 'NamedType') {
+          return type.baseType.name;
+        }
       }
     }
     return null;
   }
 
+  /** Get byte size of a field type expression (no padding). */
+  fieldRawSize(typeExpr) {
+    const sizeMap = {
+      'i8':1, 'u8':1, 'i16':2, 'u16':2, 'i32':4, 'u32':4, 'i64':8, 'u64':8,
+      'f32':4, 'f64':8, 'isize':4, 'usize':4, 'v128':16,
+    };
+    if (!typeExpr) return 4;
+    if (typeExpr.kind === 'PrimitiveType') return sizeMap[typeExpr.name] ?? 4;
+    if (typeExpr.kind === 'PointerType')   return 4;
+    if (typeExpr.kind === 'NamedType') {
+      const sym = this.symbols.get(typeExpr.name);
+      if (sym?.typeExpr?.kind === 'StructType') {
+        return this.computeStructSize(sym.typeExpr, sym.typeExpr.pragmas ?? []);
+      }
+      return 4;
+    }
+    return 4;
+  }
+
+  /** Natural alignment of a field type expression in bytes. */
+  fieldAlign(typeExpr, repr) {
+    if (repr === 'packed') return 1;
+    const size = this.fieldRawSize(typeExpr);
+    return Math.min(size, 8);
+  }
+
+  /**
+   * Compute total struct size with alignment padding.
+   * @param {Object} structTypeExpr - AST StructType node
+   * @param {Object[]} pragmas
+   * @returns {number}
+   */
+  computeStructSize(structTypeExpr, pragmas) {
+    const repr = this.resolveRepr(pragmas);
+    let size = 0;
+    let maxAlign = 1;
+    for (const f of structTypeExpr.fields ?? []) {
+      const fs = this.fieldRawSize(f.typeExpr);
+      const fa = this.fieldAlign(f.typeExpr, repr);
+      maxAlign = Math.max(maxAlign, fa);
+      if (fa > 1) size = Math.ceil(size / fa) * fa;
+      size += fs;
+    }
+    if (repr !== 'packed' && maxAlign > 1) {
+      size = Math.ceil(size / maxAlign) * maxAlign;
+    }
+    return size;
+  }
+
+  /**
+   * Compute byte offset of a named field within a struct.
+   * @param {string} typeName
+   * @param {string} fieldName
+   * @returns {number}
+   */
+  computeFieldOffset(typeName, fieldName) {
+    const sym = this.symbols.get(typeName);
+    const te  = sym?.typeExpr;
+    if (te?.kind !== 'StructType') return 0;
+    const repr = this.resolveRepr(te.pragmas ?? []);
+    let offset = 0;
+    let maxAlign = 1;
+    for (const f of te.fields ?? []) {
+      const fs = this.fieldRawSize(f.typeExpr);
+      const fa = this.fieldAlign(f.typeExpr, repr);
+      maxAlign = Math.max(maxAlign, fa);
+      if (fa > 1) offset = Math.ceil(offset / fa) * fa;
+      if (f.name === fieldName) return offset;
+      offset += fs;
+    }
+    return 0;
+  }
+
   arrayTypeName(expr) {
     if (!expr) return null;
     if (expr.kind === 'Ident') {
+      // Check function-level params/locals first
+      const te = this.currentTypeMap?.get(expr.name);
+      if (te) {
+        if (te?.kind === 'NamedType') {
+          const td = this.symbols.get(te.name);
+          if (td?.typeExpr?.kind === 'ArrayType') return te.name;
+        }
+        return null;
+      }
+      // Then check module-level symbols
       const sym = this.symbols.get(expr.name);
       const type = sym?.typeExpr;
       if (type?.kind === 'NamedType') {
@@ -1320,14 +1475,9 @@ export class WatEmitter {
     if (typeExpr?.kind === 'PrimitiveType') return sizeMap[typeExpr.name] ?? 4;
     if (typeExpr?.kind === 'PointerType')   return 4;
     if (typeExpr?.kind === 'NamedType') {
-      // Compute struct size
       const sym = this.symbols.get(typeExpr.name);
       if (sym?.typeExpr?.kind === 'StructType') {
-        let size = 0;
-        for (const f of sym.typeExpr.fields ?? []) {
-          size += sizeMap[f.typeExpr?.name] ?? 4;
-        }
-        return size;
+        return this.computeStructSize(sym.typeExpr, sym.typeExpr.pragmas ?? []);
       }
     }
     return 4;

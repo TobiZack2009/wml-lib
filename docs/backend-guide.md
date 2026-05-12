@@ -154,6 +154,84 @@ for (const group of result.diagnostics) {
 
 ---
 
+## AST and tokens
+
+The package exports AST node constructors and token type constants for programmatic
+source analysis, code generation, and tooling.
+
+### AST constructors
+
+```js
+import { AST } from 'wml-lib';
+```
+
+Every AST node is a plain object with a `kind` discriminator string and `loc`
+location object. Factory functions let you build nodes without worrying about
+the object shape:
+
+```js
+const node = AST.funcDecl(
+  "add",                              // name
+  [AST.param("a", AST.primitiveType("i32", loc), loc),
+   AST.param("b", AST.primitiveType("i32", loc), loc)],  // params
+  [AST.primitiveType("i32", loc)],    // results
+  null,                               // typeRef
+  [],                                 // locals
+  [AST.returnStmt(
+    [AST.binaryExpr("+",
+      AST.ident("a", loc),
+      AST.ident("b", loc), loc)], loc)], // body
+  [],                                 // decorators
+  loc                                 // location
+);
+```
+
+Available factories include:
+
+| Category | Factories |
+|----------|-----------|
+| Module | `module_` |
+| Types | `typeDecl`, `structType`, `structField`, `arrayType`, `funcType`, `recGroup`, `primitiveType`, `refType`, `funcRefType`, `namedType`, `pointerType` |
+| Memory/Table/Global | `memoryDecl`, `tableDecl`, `globalDecl`, `dataDecl`, `elemDecl`, `memoryInit`, `tableInit` |
+| Functions | `funcDecl`, `param`, `localDecl` |
+| Statements | `exprStmt`, `assignStmt`, `returnStmt`, `returnTailStmt`, `unreachableStmt`, `nopStmt`, `throwStmt`, `loopStmt`, `loopBlock`, `gotoStmt`, `gotoTableStmt`, `breakStmt`, `ifStmt`, `tryStmt`, `catchClause` |
+| Expressions | `intLit`, `floatLit`, `stringLit`, `nullLit`, `ident`, `unaryExpr`, `binaryExpr`, `callExpr`, `memberExpr`, `indexExpr`, `indexFieldExpr`, `ifExpr`, `selectExpr`, `castExpr`, `testExpr`, `newStructExpr`, `newArrayExpr`, `refFuncExpr`, `sizeofExpr`, `dataLiteral`, `tupleLit`, `tryExpr` |
+| Other | `sectionDecl`, `pragma`, `errorNode` |
+
+Location helpers:
+
+```js
+const loc  = AST.locFrom(token);        // create from a token
+const span = AST.span(startLoc, endLoc); // merge two locations
+```
+
+### Token types
+
+```js
+import { T } from 'wml-lib';
+```
+
+```js
+token.type === T.IDENT            // identifier
+token.type === T.KW_STRUCT        // 'struct' keyword
+token.type === T.PLUS             // '+'
+token.type === T.LBRACKET         // '['
+```
+
+All token types are frozen enum values on the `T` object. Useful for writing
+custom lexer consumers or parser tooling.
+
+### Subpath exports
+
+For direct imports of individual modules:
+
+```js
+import { module_, funcDecl } from 'wml-lib/parser/ast.js';
+import { T, KEYWORDS }        from 'wml-lib/parser/tokens.js';
+```
+
+---
+
 ## Diagnostics
 
 Diagnostics are returned as arrays of `DiagnosticGroup` objects, grouped by file.
@@ -439,6 +517,19 @@ type CLayout = struct { a: i32; b: f64; };
 // Packed — no padding between fields
 #[repr(packed)]
 type Header = struct { magic: i8; version: i8; flags: i16; };
+
+// Linear memory struct — no GC, access via pointer
+#[linear]
+type Point = struct { x: i32; y: i32; };
+```
+
+#### Pointer types
+
+Pointer types are used to reference data in linear memory:
+
+```wml
+f(ptr: *Point): i32 { return ptr[0].x; }
+f(ptr: *Point): () { ptr[0].x = 42; }
 ```
 
 ---
@@ -908,6 +999,17 @@ const result = await compile({ name: 'calculator.wml', content: source }, {
 | E504 | StartBadSignature | @start has params/returns |
 | E505 | TagBadParamType | Tag param is not value type |
 | E506 | ImportConflict | Same import, conflicting types |
+
+### Pointer errors (E6xx)
+
+| Code | Kind | Description |
+|------|------|-------------|
+| E600 | DerefNonPointer | Dereference of non-pointer |
+| E607 | LinearStructNew | `new` on `#[linear]` struct |
+| E608 | LinearStructAccess | Direct field access on `#[linear]` |
+| E609 | LinearStructRefOp | GC ref op on `#[linear]` struct |
+| E610 | LinearStructParam | Bare `#[linear]` type in param/local/return |
+| E619 | BrTableEmpty | goto table with no labels |
 
 ### Warnings (W0xx)
 

@@ -64,9 +64,36 @@ single const instruction.
 ```wml
 #[repr(packed)]
 #[repr(C)]
+#[linear]
 ```
 
 Multiple pragmas on adjacent lines apply to the next declaration.
+
+### `#[linear]` pragma
+
+The `#[linear]` pragma marks a struct type as a *linear memory struct*. Unlike
+default GC structs, `#[linear]` structs are not managed by the WasmGC garbage
+collector — they exist only as layout descriptions for pointer-based access
+through linear memory.
+
+**Rules for `#[linear]` structs:**
+- No GC type entry is emitted in the type section
+- Access through pointers only: use `ptr[0].field` or `ptr[n].field`
+- Direct field access (`p.field`) is a compile error
+- `new` on a `#[linear]` struct is not allowed — allocate memory manually
+- Cannot `extends`, inherit from, or be inherited by another type
+- Cannot be used in `ref.cast`, `ref.test`, or `is` expressions
+- Parameters, locals, and return types must use `*Type` (pointer to type)
+
+**Example:**
+```wml
+#[linear]
+type Point = struct { x: i32; y: i32; };
+memory Mem = 1;
+
+@export setX(ptr: *Point, val: i32): () { ptr[0].x = val; }
+@export getX(ptr: *Point): i32 { return ptr[0].x; }
+```
 
 ---
 
@@ -133,6 +160,7 @@ Struct pragmas:
 ```wml
 #[repr(packed)]   // No padding between fields
 #[repr(C)]        // Clang WASM32 ABI layout
+#[linear]         // Linear memory struct (no GC)
 ```
 
 Recursive type groups:
@@ -592,6 +620,18 @@ This prevents cascading errors from a single undefined name.
 | E504 | StartBadSignature | @start function has params or returns |
 | E505 | TagBadParamType | Tag param is not a value type |
 | E506 | ImportConflict | Same import with conflicting types |
+
+### Pointer errors (E6xx)
+
+| Code | Name | Description |
+|------|------|-------------|
+| E600 | DerefNonPointer | Dereference of a non-pointer type |
+| E601 | InvalidPointerType | Pointer to type without linear memory layout |
+| E607 | LinearStructNew | `new` on a `#[linear]` struct |
+| E608 | LinearStructAccess | Direct field access on `#[linear]` struct |
+| E609 | LinearStructRefOp | GC reference operation on `#[linear]` struct |
+| E610 | LinearStructParam | Bare `#[linear]` struct type in param/local/return |
+| E619 | BrTableEmpty | `goto table` with no labels |
 
 ### Warnings (W0xx)
 

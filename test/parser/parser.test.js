@@ -161,6 +161,21 @@ describe('Type declarations', () => {
     // Should parse without internal parser crash
     assert.ok(ast.ast != null);
   });
+
+  test('#[linear] pragma on struct', () => {
+    const decl = firstDecl('#[linear]\ntype Linear = struct { x: i32; y: i32; };');
+    assert.equal(decl.kind, 'TypeDecl');
+    assert.equal(decl.typeExpr.kind, 'StructType');
+    assert.ok(decl.typeExpr.pragmas.some(p => p.name === 'linear'));
+  });
+
+  test('#[linear] with repr(packed)', () => {
+    const decl = firstDecl('#[linear]\n#[repr(packed)]\ntype Packed = struct { x: i8; y: i16; };');
+    assert.equal(decl.typeExpr.kind, 'StructType');
+    const pragmaNames = (decl.typeExpr.pragmas ?? []).map(p => p.name);
+    assert.ok(pragmaNames.includes('linear'));
+    assert.ok(pragmaNames.includes('repr'));
+  });
 });
 
 // ── Memory and globals ────────────────────────────────────────────────────

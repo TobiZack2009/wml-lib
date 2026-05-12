@@ -5,7 +5,9 @@
   "type": "module",
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./parser/ast": "./src/parser/ast.js",
+    "./parser/tokens": "./src/parser/tokens.js"
   },
   "bin": {
     "wml": "./src/cli/index.js"

@@ -501,3 +501,114 @@ describe('Data segment type variants', () => {
     assert.ok(contains(wat, '\\68'), 'should contain hex for h');
   });
 });
+
+// ── Linear structs ──────────────────────────────────────────────────────────
+
+describe('Linear struct emission', () => {
+  test('#[linear] struct does not appear in type section', () => {
+    const wat = emit(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): i32 { return ptr[0].x; }
+    `);
+    // No (type $Point ...) emitted for #[linear] structs
+    assert.ok(!contains(wat, '(type $Point'), 'Linear struct should not have type entry');
+    // Regular GC struct should still have type entry
+    const wat2 = emit(`
+      type GC = struct { a: i32; };
+      f(p: GC): i32 { return p.a; }
+    `);
+    assert.ok(contains(wat2, '(type $GC'), 'GC struct should have type entry');
+  });
+
+  test('#[linear] ptr[0].field emits i32.load with offset', () => {
+    const wat = emit(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): i32 { return ptr[0].x; }
+    `);
+    // Should emit i32.load with offset=0 for first field
+    assert.ok(contains(wat, 'i32.load offset=0'),
+      `Expected i32.load offset=0 in:\n${wat}`);
+  });
+
+  test('#[linear] ptr[0].field offset for second field', () => {
+    const wat = emit(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): i32 { return ptr[0].y; }
+    `);
+    // y field should be at offset=4
+    assert.ok(contains(wat, 'i32.load offset=4'),
+      `Expected i32.load offset=4 in:\n${wat}`);
+  });
+
+  test('#[linear] ptr[n].field with index', () => {
+    const wat = emit(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point, n: i32): i32 { return ptr[n].x; }
+    `);
+    // Should multiply index by struct size (8 for two i32 fields)
+    assert.ok(contains(wat, 'i32.const 8'),
+      `Expected i32.const 8 (struct size) in:\n${wat}`);
+    assert.ok(contains(wat, 'i32.mul'),
+      `Expected i32.mul in:\n${wat}`);
+    assert.ok(contains(wat, 'i32.load offset=0'),
+      `Expected i32.load offset=0 in:\n${wat}`);
+  });
+
+  test('#[linear] ptr[0].field = val store', () => {
+    const wat = emit(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): () { ptr[0].x = 42; }
+    `);
+    // Should emit i32.store with offset=0
+    assert.ok(contains(wat, 'i32.store offset=0'),
+      `Expected i32.store offset=0 in:\n${wat}`);
+  });
+
+  test('#[linear] ptr[0].y = val store offset', () => {
+    const wat = emit(`
+      #[linear]
+      type Point = struct { x: i32; y: i32; };
+      memory Mem = 1;
+      f(ptr: *Point): () { ptr[0].y = 99; }
+    `);
+    // y store should be at offset=4
+    assert.ok(contains(wat, 'i32.store offset=4'),
+      `Expected i32.store offset=4 in:\n${wat}`);
+  });
+
+  test('#[linear] struct with mixed field sizes', () => {
+    const wat = emit(`
+      #[linear]
+      type Header = struct { magic: i8; version: i8; flags: i16; };
+      memory Mem = 1;
+      f(ptr: *Header): i32 { return ptr[0].flags; }
+    `);
+    // flags is at offset=2 (after two i8 fields)
+    assert.ok(contains(wat, 'i32.load16_s offset=2') || contains(wat, 'i32.load offset=2'),
+      `Expected load at offset=2 in:\n${wat}`);
+  });
+
+  test('#[linear] and GC structs coexist in same module', () => {
+    const wat = emit(`
+      #[linear]
+      type Linear = struct { x: i32; y: i32; };
+      type GC = struct { a: i32; };
+      memory Mem = 1;
+      f(ptr: *Linear): i32 { return ptr[0].x; }
+    `);
+    // GC struct should be in type section
+    assert.ok(contains(wat, '(type $GC'), 'GC struct should have type entry');
+    // #[linear] struct should not
+    assert.ok(!contains(wat, '(type $Linear'), 'Linear struct should not have type entry');
+  });
+});
