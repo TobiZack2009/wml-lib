@@ -22,14 +22,13 @@
     "test:errors": "node --test 'test/diagnostics/**/*.test.js'",
     "test:cli": "node --test 'test/cli/**/*.test.js'"
   },
+  "dependencies": {
+    "binaryen": "^129.0.0"
+  },
   "peerDependencies": {
-    "binaryen": "^129.0.0",
     "chokidar": ">=3.0.0"
   },
   "peerDependenciesMeta": {
-    "binaryen": {
-      "optional": true
-    },
     "chokidar": {
       "optional": true
     }
