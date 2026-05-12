@@ -197,7 +197,7 @@ export class Parser {
     const decorators = this.parseDecorators();
 
     switch (this.peekType()) {
-      case T.KW_TYPE:    return this.parseTypeDecl(decorators);
+      case T.KW_TYPE:    return this.parseTypeDecl(decorators, pragmas);
       case T.KW_MEMORY:  return this.parseMemoryDecl(decorators);
       case T.KW_SHARED: {
         if (this.peekAt(1).type === T.KW_MEMORY) return this.parseMemoryDecl(decorators);
@@ -225,12 +225,16 @@ export class Parser {
     }
   }
 
-  parseTypeDecl(decorators) {
+  parseTypeDecl(decorators, pragmas) {
     const tok = this.advance(); // consume 'type'
     const name = this.expect(T.IDENT, 'type declarations need a name: type Name = ...').value;
     this.expect(T.ASSIGN);
     const typeExpr = this.parseTypeExpr();
     this.expect(T.SEMI);
+    // Attach pragmas to struct/array types
+    if (typeExpr.kind === 'StructType' || typeExpr.kind === 'ArrayType') {
+      typeExpr.pragmas = pragmas;
+    }
     return AST.typeDecl(name, typeExpr, this.loc(tok));
   }
 
