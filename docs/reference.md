@@ -95,6 +95,96 @@ memory Mem = 1;
 @export getX(ptr: *Point): i32 { return ptr[0].x; }
 ```
 
+**Compiled output:**
+
+`#[linear]` structs are compiled to plain memory access instructions — no GC
+interaction occurs:
+
+| WML | WASM Instruction | What It Does |
+|-----|------------------|-------------|
+| `ptr[0].x` (read) | `i32.load offset=0` | Read 4 bytes at `ptr + 0` |
+| `ptr[0].y` (read) | `i32.load offset=4` | Read 4 bytes at `ptr + 4` |
+| `ptr[0].x = v` (write) | `i32.store offset=0` | Write 4 bytes at `ptr + 0` |
+| `ptr[n].x` (indexed) | `i32.const 8` `i32.mul` + `i32.add` + `i32.load offset=0` | `ptr + n * 8 + 0` |
+
+The example above compiles to:
+
+```wat
+(memory $Mem 1)
+
+(func $setX (export "setX") (param $ptr i32) (param $val i32)
+  (local $__wml_temp i32)
+  local.get $val
+  local.set $__wml_temp
+  local.get $ptr
+  i32.const 0
+  i32.const 8
+  i32.mul
+  i32.add
+  local.get $__wml_temp
+  i32.store offset=0
+)
+
+(func $getX (export "getX") (param $ptr i32) (result i32)
+  local.get $ptr
+  i32.const 0
+  i32.const 8
+  i32.mul
+  i32.add
+  i32.load offset=0
+  return
+)
+```
+
+Key observations:
+
+- **No type section entry** — `(type $Point ...)` is not emitted
+- **`$ptr` is `i32`** — pointers are plain linear memory addresses at runtime
+- **`i32.const 0` `i32.const 8` `i32.mul` `i32.add`** computes the address for `ptr[n]`:
+  `ptr + n * sizeof(Point)`. For `ptr[0]` the multiply is a no-op but still emitted.
+- **`offset=N`** encodes field position within the struct (`x` at 0, `y` at 4)
+- **`$__wml_temp`** is a synthetic local used for reordering the stack in store operations
+- **No `(type ...)`** means the struct exists purely at compile time for layout
+
+**Field layout rules:**
+
+Default alignment follows natural field alignment (up to 8 bytes):
+
+```wml
+#[linear]
+type Mixed = struct {
+  a: i8;    // offset 0, size 1
+  b: i32;   // offset 4 (padded to 4-byte alignment), size 4
+  c: i16;   // offset 8, size 2
+};
+// Total size: 12 bytes (10 content + 2 trailing padding to 4-byte alignment)
+```
+
+With `#[repr(packed)]`, padding is disabled and fields are tightly packed:
+
+```wml
+#[linear]
+#[repr(packed)]
+type Packed = struct {
+  a: i8;    // offset 0, size 1
+  b: i32;   // offset 1 (no padding), size 4
+  c: i16;   // offset 5, size 2
+};
+// Total size: 7 bytes
+```
+
+**Array access pattern:**
+
+For `ptr[n].field`, the compiler multiplies `n` by the total struct size (with
+padding), then adds the field offset:
+
+| Step | Value |
+|------|-------|
+| Base | `ptr` (i32 address) |
+| Element index | `n * sizeof(Point)` |
+| Field offset | `offsetof(Point, field)` |
+| Final address | `ptr + n * sizeof(Point) + offsetof(Point, field)` |
+
 ---
 
 ## Module structure

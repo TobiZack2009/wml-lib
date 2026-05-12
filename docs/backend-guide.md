@@ -525,12 +525,55 @@ type Point = struct { x: i32; y: i32; };
 
 #### Pointer types
 
-Pointer types are used to reference data in linear memory:
+Pointer types are used to reference data in linear memory. They are only valid
+for `#[linear]` structs.
 
+**Syntax:**
 ```wml
 f(ptr: *Point): i32 { return ptr[0].x; }
 f(ptr: *Point): () { ptr[0].x = 42; }
 ```
+
+At runtime, `*Type` is just `i32` — a linear memory address.
+
+**Access forms:**
+
+| Form | Meaning | Emitted Instruction |
+|------|---------|-------------------|
+| `ptr[0].x` (read) | Field read at index 0 | `i32.load offset=0` |
+| `ptr[0].x = v` (write) | Field write at index 0 | `i32.store offset=0` |
+| `ptr[n].x` (read) | Field read at index n | `i32.mul` `i32.add` `i32.load offset=0` |
+| `ptr[n].x = v` (write) | Field write at index n | `i32.mul` `i32.add` `i32.store offset=0` |
+
+**Offset calculation:**
+
+Field offsets follow C-like alignment rules (max 8-byte alignment, unless
+`#[repr(packed)]`):
+
+```wml
+#[linear]
+type Example = struct {
+  a: i8;    // offset 0
+  b: i32;   // offset 4 (3 bytes padding for i32 alignment)
+  c: i16;   // offset 8
+  d: i8;    // offset 10
+};
+// total size: 12 (10 bytes content + 2 trailing padding)
+```
+
+The address for `ptr[n].field` is computed as:
+```
+base + n * sizeof(struct) + offsetof(struct, field)
+```
+
+Where both `sizeof` and `offsetof` are compile-time constants.
+
+**No GC interaction:**
+
+- No type entry is emitted in the WASM type section
+- The struct layout exists only at compile time for offset computation
+- `i32.load` / `i32.store` (with appropriate size suffix) are the only emitted instructions
+- No `struct.new`, `struct.get`, or `struct.set` instructions are used
 
 ---
 
