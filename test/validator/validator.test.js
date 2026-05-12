@@ -262,6 +262,10 @@ describe('Link validation', () => {
   test('valid tag params', () => {
     noErrors('tag DivError: (i32, i32);');
   });
+
+  test('import with body is E501', () => {
+    hasCode('@import("env","log") log(n: i32): () { nop; }', 'E501');
+  });
 });
 
 // ── Warnings ──────────────────────────────────────────────────────────────
@@ -356,5 +360,26 @@ describe('Valid programs', () => {
         return Mem.load<i32>(ptr);
       }
     `);
+  });
+});
+
+// ── More type errors ────────────────────────────────────────────────────────
+
+describe('Additional type errors', () => {
+  test('immutable field assignment is E105', () => {
+    hasCode(`
+      type Point = struct { x: i32; };
+      f(p: Point): () { p.x = 5; }
+    `, 'E105');
+  });
+
+  test('empty br_table is E619', () => {
+    hasCode("f(): () { loop { { goto []; } } }", 'E619');
+  });
+
+  test('unreachable code after return', () => {
+    // Code after return should parse but validation context may differ
+    const { errors } = validateSrc('f(): i32 { return 1; 42; }');
+    assert.equal(errors.filter(e => e.severity === 'error').length, 0);
   });
 });

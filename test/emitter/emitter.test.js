@@ -403,3 +403,101 @@ describe('Float operations', () => {
     assert.ok(contains(wat, 'f64.const 3.14'));
   });
 });
+
+// ── Additional emitter features ─────────────────────────────────────────────
+
+describe('Table and elem emission', () => {
+  test('table declaration', () => {
+    const wat = emit('table T: [funcref] = 8;');
+    assert.ok(contains(wat, 'table'), 'table keyword');
+    assert.ok(contains(wat, 'funcref'), 'funcref type');
+  });
+
+  test('elem segment', () => {
+    const wat = emit('table T: [funcref] = 4;\nf(): i32 { return 0; }\nelem E: funcref[] = [f];');
+    assert.ok(contains(wat, 'elem'));
+  });
+});
+
+describe('Tag and exception emission', () => {
+  test('tag declaration', () => {
+    const wat = emit('tag DivError: (i32, i32);');
+    assert.ok(contains(wat, 'tag'));
+    assert.ok(contains(wat, '$DivError'));
+  });
+
+  test('exported tag', () => {
+    const wat = emit('@export tag AppError: (i32);');
+    assert.ok(contains(wat, 'export'));
+    assert.ok(contains(wat, '"AppError"'));
+  });
+});
+
+describe('Select and sizeof emission', () => {
+  test('select expression', () => {
+    const wat = emit('f(c: i32, a: i32, b: i32): i32 { return select(c, a, b); }');
+    assert.ok(contains(wat, 'select'));
+  });
+
+  test('sizeof expression emits computed constant', () => {
+    const wat = emit('type T = struct { x: i32; y: i32; };\nf(): isize { return sizeof(T); }');
+    // sizeof(T) for two i32 fields should be 8
+    assert.ok(contains(wat, 'i32.const 8'));
+  });
+});
+
+describe('New struct and array emission', () => {
+  test('new struct', () => {
+    const wat = emit('type Point = struct { x: i32; y: i32; };\nf(): Point { return new Point { x: 1, y: 2 }; }');
+    assert.ok(contains(wat, 'struct.new'));
+    assert.ok(contains(wat, '$Point'));
+  });
+
+  test('new array', () => {
+    const wat = emit('type IntArray = [i32];\nf(n: i32): IntArray { return new IntArray(n); }');
+    assert.ok(contains(wat, 'array.new'));
+  });
+});
+
+describe('Section emission', () => {
+  test('section @debug produces no errors', () => {
+    // section @debug is a no-op during WAT emission
+    const wat = emit('section @debug;');
+    assert.ok(wat.includes('(module'));
+  });
+
+  test('custom section', () => {
+    const wat = emit('section "mySection" { cstr "hello" }');
+    assert.ok(contains(wat, 'mySection'));
+  });
+});
+
+describe('Ref and goto emission', () => {
+  test('goto to label uses br', () => {
+    const wat = emit("f(): () { loop { { 'top nop; goto 'top if (0); } } }");
+    assert.ok(contains(wat, 'br_if $top'));
+  });
+
+  test('ref function', () => {
+    const wat = emit('f(x: i32): i32 { return x; }\ng(): funcref { return ref(f); }');
+    assert.ok(contains(wat, 'ref.func'));
+  });
+});
+
+describe('Data segment type variants', () => {
+  test('i8[] data', () => {
+    const wat = emit('memory Mem = 1;\ndata D: i8[] = [1, 2, 3];\nMem[0] = D;');
+    assert.ok(contains(wat, 'data'));
+  });
+
+  test('cstr data emits hex-encoded string', () => {
+    const wat = emit('memory Mem = 1;\ndata D: cstr = "hello";\nMem[0] = D;');
+    // cstr is emitted as hex byte escapes
+    assert.ok(contains(wat, '\\68'), 'should contain hex for h');
+  });
+
+  test('utf8_32 data emits hex-encoded string', () => {
+    const wat = emit('memory Mem = 1;\ndata D: utf8_32 = "hi";\nMem[0] = D;');
+    assert.ok(contains(wat, '\\68'), 'should contain hex for h');
+  });
+});

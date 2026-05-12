@@ -15,7 +15,12 @@
     "test:parser": "node --test 'test/parser/**/*.test.js'",
     "test:validator": "node --test 'test/validator/**/*.test.js'",
     "test:emitter": "node --test 'test/emitter/**/*.test.js'",
-    "test:features": "node --test 'test/features/**/*.test.js'"
+    "test:features": "node --test 'test/features/**/*.test.js'",
+    "test:execution": "node --test 'test/execution/**/*.test.js'",
+    "test:linker": "node --test 'test/linker/**/*.test.js'",
+    "test:lexer": "node --test 'test/parser/lexer.test.js'",
+    "test:errors": "node --test 'test/diagnostics/**/*.test.js'",
+    "test:cli": "node --test 'test/cli/**/*.test.js'"
   },
   "peerDependencies": {
     "binaryen": "^129.0.0",

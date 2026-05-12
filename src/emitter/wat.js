@@ -945,6 +945,13 @@ export class WatEmitter {
   }
 
   emitCall(expr) {
+    // Method calls: emitMethodCall handles args internally
+    if (expr.callee.kind === 'MemberExpr') {
+      this.emitMethodCall(expr);
+      return;
+    }
+
+    // Regular function calls — emit args first
     for (const a of expr.args ?? []) this.emitExpr(a);
 
     // call_indirect: TableName[idx]<Type>(args)
@@ -970,12 +977,6 @@ export class WatEmitter {
       } else {
         this.write('call_ref');
       }
-      return;
-    }
-
-    // Method calls on i31ref, memory, etc.
-    if (expr.callee.kind === 'MemberExpr') {
-      this.emitMethodCall(expr);
       return;
     }
 
@@ -1342,6 +1343,16 @@ export class WatEmitter {
       if (callee.kind === 'Ident') {
         const sym = this.symbols.get(callee.name);
         if (sym?.kind === 'FuncDecl') return (sym.results?.length ?? 0) > 0;
+      }
+      if (callee.kind === 'MemberExpr') {
+        const obj = callee.object;
+        if (obj.kind === 'Ident') {
+          const sym = this.symbols.get(obj.name);
+          if (sym?.kind === 'MemoryDecl') {
+            const voidMemMethods = new Set(['store', 'copy', 'fill', 'init']);
+            return !voidMemMethods.has(callee.field);
+          }
+        }
       }
     }
     return true;
