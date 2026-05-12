@@ -95,6 +95,9 @@ export class TypeChecker {
 
   checkDecl(decl) {
     switch (decl.kind) {
+      case 'TypeDecl':
+        this.checkTypeDecl(decl);
+        break;
       case 'FuncDecl':
         this.checkFunc(decl);
         break;
@@ -117,14 +120,45 @@ export class TypeChecker {
     }
   }
 
+  /** @param {Object} typeExpr */
+  isLinear(typeExpr) {
+    return typeExpr?.kind === 'StructType' &&
+      typeExpr.pragmas?.some(p => p.name === 'linear');
+  }
+
+  /** @param {Object} decl */
+  checkTypeDecl(decl) {
+    const te = decl.typeExpr;
+    if (te.kind === 'StructType') {
+      // #[linear] structs cannot extend
+      if (te.superType && this.isLinear(te)) {
+        this.err('E609', `#[linear] struct '${decl.name}' cannot extend another type`,
+          `'${decl.name}' extends another type, but #[linear] structs do not support inheritance`,
+          null, decl.loc);
+      }
+    }
+  }
+
   checkFunc(decl) {
     // Build param type map
     const locals = new Map();
     for (const p of decl.params ?? []) {
-      locals.set(p.name, this.resolveType(p.typeExpr));
+      const t = this.resolveType(p.typeExpr);
+      locals.set(p.name, t);
+      // Reject bare #[linear] struct type as param
+      if (t.kind === 'struct' && this.isLinear(t.decl)) {
+        this.err('E610', `Parameter '${p.name}' cannot use #[linear] struct type directly`,
+          `Use *${t.name} instead`, null, p.loc);
+      }
     }
     for (const l of decl.locals ?? []) {
-      locals.set(l.name, this.resolveType(l.typeExpr));
+      const t = this.resolveType(l.typeExpr);
+      locals.set(l.name, t);
+      // Reject bare #[linear] struct type as local
+      if (t.kind === 'struct' && this.isLinear(t.decl)) {
+        this.err('E610', `Local '${l.name}' cannot use #[linear] struct type directly`,
+          `Use *${t.name} instead`, null, l.loc);
+      }
       if (l.init) {
         const initType = this.checkExpr(l.init, locals);
         const declType = this.resolveType(l.typeExpr);
@@ -141,7 +175,14 @@ export class TypeChecker {
       const ft = this.resolveType(decl.typeRef);
       if (ft.kind === 'func') returnTypes = ft.results;
     } else {
-      returnTypes = (decl.results ?? []).map(r => this.resolveType(r));
+      returnTypes = (decl.results ?? []).map(r => {
+        const t = this.resolveType(r);
+        if (t.kind === 'struct' && this.isLinear(t.decl)) {
+          this.err('E610', `Return type cannot use #[linear] struct type directly`,
+            `Use *${t.name} instead`, null, r.loc);
+        }
+        return t;
+      });
     }
 
     const prev = this.currentFunc;
@@ -382,16 +423,33 @@ export class TypeChecker {
 
       case 'CastExpr': {
         this.checkExpr(expr.expr, locals);
-        return this.resolveType(expr.toType);
+        const toType = this.resolveType(expr.toType);
+        if (toType.kind === 'struct' && this.isLinear(toType.decl)) {
+          this.err('E609', `Cannot cast to a #[linear] struct type`,
+            `'${toType.name}' is #[linear]; use pointer-based access`, null, expr.loc);
+          return Ty.Types.error;
+        }
+        return toType;
       }
 
       case 'TestExpr': {
         this.checkExpr(expr.expr, locals);
-        return Ty.Types.i32; // returns boolean as i32
+        const testType = this.resolveType(expr.typeExpr);
+        if (testType.kind === 'struct' && this.isLinear(testType.decl)) {
+          this.err('E609', `Cannot use a #[linear] struct type in a type test`,
+            `'${testType.name}' is #[linear]`, null, expr.loc);
+          return Ty.Types.error;
+        }
+        return Ty.Types.i32;
       }
 
       case 'NewStructExpr': {
         const t = this.resolveType(expr.typeExpr);
+        if (t.kind === 'struct' && this.isLinear(t.decl)) {
+          this.err('E607', `Cannot construct a #[linear] struct with new`,
+            `'${t.name}' is #[linear]; allocate manually in linear memory`, null, expr.loc);
+          return Ty.Types.error;
+        }
         for (const v of Object.values(expr.fields ?? {})) this.checkExpr(v, locals);
         return t;
       }
@@ -607,6 +665,12 @@ export class TypeChecker {
 
     // Struct field access: obj.field
     if (objType.kind === 'struct') {
+      // #[linear] structs must be accessed through pointers
+      if (this.isLinear(objType.decl)) {
+        this.err('E608', `Cannot access fields of #[linear] struct '${objType.name}' directly`,
+          `Use a pointer: ptr[0].${field}`, null, loc);
+        return Ty.Types.error;
+      }
       const structDecl = objType.decl;
       const fieldDef = structDecl?.fields?.find(f => f.name === field);
       if (!fieldDef) {
