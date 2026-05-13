@@ -761,6 +761,18 @@ Integer-specific:
 | `x.shr_u(y)` | `i32.shr_u` / `i64.shr_u` |
 | `x.rotl(y)` | `i32.rotl` / `i64.rotl` |
 | `x.rotr(y)` | `i32.rotr` / `i64.rotr` |
+| `x.div_s(y)` | `i32.div_s` / `i64.div_s` |
+| `x.div_u(y)` | `i32.div_u` / `i64.div_u` |
+| `x.rem_s(y)` | `i32.rem_s` / `i64.rem_s` |
+| `x.rem_u(y)` | `i32.rem_u` / `i64.rem_u` |
+| `x.lt_s(y)` | `i32.lt_s` / `i64.lt_s` |
+| `x.lt_u(y)` | `i32.lt_u` / `i64.lt_u` |
+| `x.gt_s(y)` | `i32.gt_s` / `i64.gt_s` |
+| `x.gt_u(y)` | `i32.gt_u` / `i64.gt_u` |
+| `x.le_s(y)` | `i32.le_s` / `i64.le_s` |
+| `x.le_u(y)` | `i32.le_u` / `i64.le_u` |
+| `x.ge_s(y)` | `i32.ge_s` / `i64.ge_s` |
+| `x.ge_u(y)` | `i32.ge_u` / `i64.ge_u` |
 
 Float-specific:
 
@@ -770,6 +782,10 @@ Float-specific:
 | `x.min(y)` | `f32.min` / `f64.min` |
 | `x.max(y)` | `f32.max` / `f64.max` |
 | `x.copysign(y)` | `f32.copysign` / `f64.copysign` |
+| `x.lt(y)` | `f32.lt` / `f64.lt` |
+| `x.gt(y)` | `f32.gt` / `f64.gt` |
+| `x.le(y)` | `f32.le` / `f64.le` |
+| `x.ge(y)` | `f32.ge` / `f64.ge` |
 
 ---
 

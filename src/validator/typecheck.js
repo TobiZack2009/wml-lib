@@ -577,17 +577,12 @@ export class TypeChecker {
       return Ty.Types.i32;
     }
 
-    // Signed/unsigned division and remainder require matching signedness
+    // Division and remainder
     if (['/s','/u','%s','%u'].includes(op)) {
       if (!Ty.isAssignable(lt, rt)) {
         this.err('E101', `Operator '${op}' requires matching integer types`,
           `Found ${lt.name} and ${rt.name}`, null, expr.loc);
         return Ty.Types.error;
-      }
-      // /u and %u require unsigned type on result
-      if (op.endsWith('u') && Ty.isSigned(lt)) {
-        this.err('E101', `Operator '${op}' expects unsigned type, found ${lt.name}`,
-          "Use u32 or u64 for unsigned operations", null, expr.loc);
       }
       return lt;
     }
@@ -738,9 +733,17 @@ export class TypeChecker {
       extend8:  Ty.Types.i32, extend16: Ty.Types.i32, extend32: Ty.Types.i64,
       clz: Ty.Types.i32, ctz: Ty.Types.i32, popcnt: Ty.Types.i32, eqz: Ty.Types.i32,
       abs: type, neg: type, sqrt: type, ceil: type, floor: type,
-      trunc: type, nearest: type, min: type, max: type, copysign: type,
+      trunc: type, nearest: type, copysign: type,
       rotl: type, rotr: type,
-      add: type, sub: type, mul: type, eq: Ty.Types.i32, ne: Ty.Types.i32,
+      add: type, sub: type, mul: type,
+      div: type, div_s: type, div_u: type, rem_s: type, rem_u: type,
+      min: type, max: type,
+      and: type, or: type, xor: type,
+      shl: type, shr_s: type, shr_u: type,
+      eq: Ty.Types.i32, ne: Ty.Types.i32,
+      lt: Ty.Types.i32, gt: Ty.Types.i32, le: Ty.Types.i32, ge: Ty.Types.i32,
+      lt_s: Ty.Types.i32, gt_s: Ty.Types.i32, le_s: Ty.Types.i32, ge_s: Ty.Types.i32,
+      lt_u: Ty.Types.i32, gt_u: Ty.Types.i32, le_u: Ty.Types.i32, ge_u: Ty.Types.i32,
       extractLane: Ty.Types.i32, replaceLane: type,
       splat: type, shuffle: type, swizzle: type,
     };

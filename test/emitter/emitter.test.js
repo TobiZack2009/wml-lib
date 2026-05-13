@@ -708,4 +708,46 @@ describe('Primitive method calls', () => {
     assert.ok(contains(wat, 'i32.eqz'),
       `Expected i32.eqz in:\n${wat}`);
   });
+
+  test('i32.div_s emits i32.div_s', () => {
+    const wat = emit('f(x: i32, y: i32): i32 { return x.div_s(y); }');
+    assert.ok(contains(wat, 'i32.div_s'),
+      `Expected i32.div_s in:\n${wat}`);
+  });
+
+  test('i32.div_u emits i32.div_u', () => {
+    const wat = emit('f(x: i32, y: i32): i32 { return x.div_u(y); }');
+    assert.ok(contains(wat, 'i32.div_u'),
+      `Expected i32.div_u in:\n${wat}`);
+  });
+
+  test('i32.rem_u emits i32.rem_u', () => {
+    const wat = emit('f(x: i32, y: i32): i32 { return x.rem_u(y); }');
+    assert.ok(contains(wat, 'i32.rem_u'),
+      `Expected i32.rem_u in:\n${wat}`);
+  });
+
+  test('i64.div_u and rem_u emit correct instructions', () => {
+    const wat = emit('f(x: i64, y: i64): i64 { return x.div_u(y); }');
+    assert.ok(contains(wat, 'i64.div_u'),
+      `Expected i64.div_u in:\n${wat}`);
+  });
+
+  test('i32.lt_u emits i32.lt_u', () => {
+    const wat = emit('f(x: i32, y: i32): i32 { return x.lt_u(y); }');
+    assert.ok(contains(wat, 'i32.lt_u'),
+      `Expected i32.lt_u in:\n${wat}`);
+  });
+
+  test('/u on i32 emits i32.div_u', () => {
+    const wat = emit('f(x: i32, y: i32): i32 { return x /u y; }');
+    assert.ok(contains(wat, 'i32.div_u'),
+      `Expected i32.div_u in:\n${wat}`);
+  });
+
+  test('%u on i64 emits i64.rem_u', () => {
+    const wat = emit('f(x: i64, y: i64): i64 { return x %u y; }');
+    assert.ok(contains(wat, 'i64.rem_u'),
+      `Expected i64.rem_u in:\n${wat}`);
+  });
 });

@@ -855,4 +855,35 @@ describe('Primitive conversion methods', { skip: skipIfNoBinaryen() }, () => {
     assert.equal(f(42.5), -42.5);
     assert.equal(f(-3.0), 3.0);
   });
+
+  test('/u on i32', async () => {
+    const { f } = await instantiate('@export f(x: i32, y: i32): i32 { return x /u y; }');
+    // 10 /u 3 = 3, -1 /u 3 = 1431655765 (since -1 = 0xFFFFFFFF as unsigned)
+    assert.equal(f(10, 3), 3);
+    assert.equal(f(0, 1), 0);
+    assert.equal(f(-1 >>> 0, 3), 0xFFFFFFFF / 3);
+  });
+
+  test('%u on i32', async () => {
+    const { f } = await instantiate('@export f(x: i32, y: i32): i32 { return x %u y; }');
+    assert.equal(f(10, 3), 1);
+    assert.equal(f(0, 1), 0);
+  });
+
+  test('/u on i64', async () => {
+    const { f } = await instantiate('@export f(x: i64, y: i64): i64 { return x /u y; }');
+    assert.equal(f(10n, 3n), 3n);
+  });
+
+  test('i32.div_s method', async () => {
+    const { f } = await instantiate('@export f(x: i32, y: i32): i32 { return x.div_s(y); }');
+    assert.equal(f(10, 3), 3);
+    assert.equal(f(-10, 3), -3);
+  });
+
+  test('i32.lt_u method', async () => {
+    const { f } = await instantiate('@export f(x: i32, y: i32): i32 { return x.lt_u(y); }');
+    assert.equal(f(-1, 1), 0); // -1 as unsigned is 0xFFFFFFFF > 1
+    assert.equal(f(0, 1), 1);
+  });
 });

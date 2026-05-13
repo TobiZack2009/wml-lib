@@ -175,9 +175,9 @@ describe('Type errors', () => {
     hasCode('add(a: i32, b: i32): i32 { return a + b; }\nf(): i32 { return add(1.0, 2); }', 'E100');
   });
 
-  test('unsigned operator on signed type warns/errors', () => {
-    // /u on i32 is an error
-    assert.ok(hasErr('f(): i32 { local a: i32 = 10; local b: i32 = 3; return a /u b; }', 'E101'));
+  test('/u and %u work on i32 and i64', () => {
+    noErrors('f(): i32 { local a: i32 = 10; local b: i32 = 3; return a /u b; }');
+    noErrors('f(): i64 { local a: i64 = 10i64; local b: i64 = 3i64; return a %u b; }');
   });
 
   test('logical not returns i32', () => {
