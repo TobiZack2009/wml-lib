@@ -643,6 +643,16 @@ export class TypeChecker {
 
     if (Ty.isError(calleeType)) return Ty.Types.error;
 
+    // Primitive method call: x.toF64(), x.add(y), etc.
+    // callee is a MemberExpr on a primitive/SIMD type — the method was
+    // already validated by getMemberType / resolveMethodType
+    if (expr.callee.kind === 'MemberExpr') {
+      const objType = this.checkExpr(expr.callee.object, locals);
+      if (!Ty.isError(objType) && (Ty.isPrim(objType) || Ty.isSIMD(objType))) {
+        return calleeType;
+      }
+    }
+
     // funcref with type annotation
     if (calleeType.kind === 'funcref') {
       if (!calleeType.typeRef && !expr.typeArg) {

@@ -643,3 +643,69 @@ describe('Linear struct emission', () => {
     assert.ok(!contains(wat, '(type $Linear'), 'Linear struct should not have type entry');
   });
 });
+
+// ── Primitive conversion / arithmetic methods ──────────────────────────────
+
+describe('Primitive method calls', () => {
+  test('i32.toF64() emits f64.convert_i32_s', () => {
+    const wat = emit('f(x: i32): f64 { return x.toF64(); }');
+    assert.ok(contains(wat, 'f64.convert_i32_s'),
+      `Expected f64.convert_i32_s in:\n${wat}`);
+  });
+
+  test('i64.toI32s() emits i32.wrap_i64', () => {
+    const wat = emit('f(x: i64): i32 { return x.toI32s(); }');
+    assert.ok(contains(wat, 'i32.wrap_i64'),
+      `Expected i32.wrap_i64 in:\n${wat}`);
+  });
+
+  test('i32.toI64s() emits i64.extend_i32_s', () => {
+    const wat = emit('f(x: i32): i64 { return x.toI64s(); }');
+    assert.ok(contains(wat, 'i64.extend_i32_s'),
+      `Expected i64.extend_i32_s in:\n${wat}`);
+  });
+
+  test('f64.toI64s() emits i64.trunc_f64_s', () => {
+    const wat = emit('f(x: f64): i64 { return x.toI64s(); }');
+    assert.ok(contains(wat, 'i64.trunc_f64_s'),
+      `Expected i64.trunc_f64_s in:\n${wat}`);
+  });
+
+  test('f64.reinterpret emits i64.reinterpret_f64', () => {
+    const wat = emit('f(x: f64): i64 { return x.reinterpret; }');
+    assert.ok(contains(wat, 'i64.reinterpret_f64'),
+      `Expected i64.reinterpret_f64 in:\n${wat}`);
+  });
+
+  test('i32.reinterpret emits f32.reinterpret_i32', () => {
+    const wat = emit('f(x: i32): f32 { return x.reinterpret; }');
+    assert.ok(contains(wat, 'f32.reinterpret_i32'),
+      `Expected f32.reinterpret_i32 in:\n${wat}`);
+  });
+
+  test('same-type toF64 is no-op', () => {
+    const wat = emit('f(x: f64): f64 { return x.toF64(); }');
+    assert.ok(!contains(wat, 'convert'),
+      `No conversion expected in:\n${wat}`);
+    assert.ok(contains(wat, 'local.get $x'),
+      `Expected local.get $x in:\n${wat}`);
+  });
+
+  test('i32.add() emits i32.add', () => {
+    const wat = emit('f(x: i32, y: i32): i32 { return x.add(y); }');
+    assert.ok(contains(wat, 'i32.add'),
+      `Expected i32.add in:\n${wat}`);
+  });
+
+  test('f64.neg emits f64.neg', () => {
+    const wat = emit('f(x: f64): f64 { return x.neg; }');
+    assert.ok(contains(wat, 'f64.neg'),
+      `Expected f64.neg in:\n${wat}`);
+  });
+
+  test('i32.eqz emits i32.eqz', () => {
+    const wat = emit('f(x: i32): i32 { return x.eqz; }');
+    assert.ok(contains(wat, 'i32.eqz'),
+      `Expected i32.eqz in:\n${wat}`);
+  });
+});

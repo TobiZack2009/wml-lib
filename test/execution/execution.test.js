@@ -807,3 +807,52 @@ describe('Linear struct operations', { skip: skipIfNoBinaryen() }, () => {
     assert.equal(getFlags(addr), 0x1234);
   });
 });
+
+// ── Primitive conversion methods ─────────────────────────────────────────────
+
+describe('Primitive conversion methods', { skip: skipIfNoBinaryen() }, () => {
+  test('i32.toF64', async () => {
+    const { f } = await instantiate('@export f(x: i32): f64 { return x.toF64(); }');
+    assert.equal(f(42), 42.0);
+    assert.equal(f(0), 0.0);
+    assert.equal(f(-5), -5.0);
+  });
+
+  test('i64.toI32s', async () => {
+    const { f } = await instantiate('@export f(x: i64): i32 { return x.toI32s(); }');
+    assert.equal(f(42n), 42);
+    assert.equal(f(0n), 0);
+    assert.equal(f(-5n), -5);
+  });
+
+  test('i32.toI64s', async () => {
+    const { f } = await instantiate('@export f(x: i32): i64 { return x.toI64s(); }');
+    assert.equal(f(42), 42n);
+    assert.equal(f(0), 0n);
+    assert.equal(f(-5), -5n);
+  });
+
+  test('f64.toI64s', async () => {
+    const { f } = await instantiate('@export f(x: f64): i64 { return x.toI64s(); }');
+    assert.equal(f(42.0), 42n);
+    assert.equal(f(0.0), 0n);
+    assert.equal(f(-5.0), -5n);
+  });
+
+  test('i32.add method', async () => {
+    const { f } = await instantiate('@export f(x: i32, y: i32): i32 { return x.add(y); }');
+    assert.equal(f(3, 4), 7);
+    assert.equal(f(-1, 1), 0);
+  });
+
+  test('i64.sub method', async () => {
+    const { f } = await instantiate('@export f(x: i64, y: i64): i64 { return x.sub(y); }');
+    assert.equal(f(10n, 3n), 7n);
+  });
+
+  test('f64.neg', async () => {
+    const { f } = await instantiate('@export f(x: f64): f64 { return x.neg; }');
+    assert.equal(f(42.5), -42.5);
+    assert.equal(f(-3.0), 3.0);
+  });
+});

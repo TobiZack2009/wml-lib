@@ -677,6 +677,100 @@ result is determined by the left. They compile to WAT `if` blocks.
 ||   &&   == !=   < > <= >=   |   ^   &   << >>s >>u   + -   * /s /u %s %u   unary(- ~ !)   postfix
 ```
 
+### Primitive methods
+
+Primitive types support method-call syntax for WASM type conversions and arithmetic.
+Both `x.toF64()` (with parens) and `x.toF64` (no parens, for unary ops) are accepted.
+
+#### Conversions
+
+| Method | Source → Result | WAT instruction |
+|--------|----------------|-----------------|
+| `x.toI32s()` | `i64` → `i32` | `i32.wrap_i64` |
+| `x.toI32s()` | `f32` → `i32` | `i32.trunc_f32_s` |
+| `x.toI32s()` | `f64` → `i32` | `i32.trunc_f64_s` |
+| `x.toI32u()` | `f32` → `i32` | `i32.trunc_f32_u` |
+| `x.toI32u()` | `f64` → `i32` | `i32.trunc_f64_u` |
+| `x.toI32sSat()` | `f32` → `i32` | `i32.trunc_sat_f32_s` |
+| `x.toI32sSat()` | `f64` → `i32` | `i32.trunc_sat_f64_s` |
+| `x.toI64s()` | `i32` → `i64` | `i64.extend_i32_s` |
+| `x.toI64s()` | `f32` → `i64` | `i64.trunc_f32_s` |
+| `x.toI64s()` | `f64` → `i64` | `i64.trunc_f64_s` |
+| `x.toI64u()` | `i32` → `i64` | `i64.extend_i32_u` |
+| `x.toF32s()` | `i32` → `f32` | `f32.convert_i32_s` |
+| `x.toF32s()` | `i64` → `f32` | `f32.convert_i64_s` |
+| `x.toF64()` | `i32` → `f64` | `f64.convert_i32_s` |
+| `x.toF64()` | `i64` → `f64` | `f64.convert_i64_s` |
+| `x.toF64()` | `f32` → `f64` | `f64.promote_f32` |
+| `x.toF32()` | `f64` → `f32` | `f32.demote_f64` |
+
+Same-type conversions are no-ops (e.g. `i32.toI32s()` just returns the value).
+
+#### Reinterpret
+
+| Expression | WAT instruction |
+|------------|-----------------|
+| `x.reinterpret` where `x: i32` | `f32.reinterpret_i32` |
+| `x.reinterpret` where `x: i64` | `f64.reinterpret_i64` |
+| `x.reinterpret` where `x: f32` | `i32.reinterpret_f32` |
+| `x.reinterpret` where `x: f64` | `i64.reinterpret_f64` |
+
+#### Sign extension
+
+| Expression | WAT instruction |
+|------------|-----------------|
+| `x.extend8` | `i32.extend8_s` |
+| `x.extend16` | `i32.extend16_s` |
+| `x.extend32` | `i64.extend32_s` |
+
+#### Unary operations
+
+| Expression | WAT instruction |
+|------------|-----------------|
+| `x.clz` | `i32.clz` / `i64.clz` |
+| `x.ctz` | `i32.ctz` / `i64.ctz` |
+| `x.popcnt` | `i32.popcnt` / `i64.popcnt` |
+| `x.eqz` | `i32.eqz` / `i64.eqz` |
+| `x.abs` | `f32.abs` / `f64.abs` |
+| `x.neg` | `f32.neg` / `f64.neg` |
+| `x.sqrt` | `f32.sqrt` / `f64.sqrt` |
+| `x.ceil` | `f32.ceil` / `f64.ceil` |
+| `x.floor` | `f32.floor` / `f64.floor` |
+| `x.trunc` | `f32.trunc` / `f64.trunc` |
+| `x.nearest` | `f32.nearest` / `f64.nearest` |
+
+#### Binary operations
+
+| Expression | WAT instruction |
+|------------|-----------------|
+| `x.add(y)` | `i32.add` / `i64.add` / `f32.add` / `f64.add` |
+| `x.sub(y)` | `i32.sub` / `i64.sub` / `f32.sub` / `f64.sub` |
+| `x.mul(y)` | `i32.mul` / `i64.mul` / `f32.mul` / `f64.mul` |
+| `x.eq(y)` | `i32.eq` / `i64.eq` / `f32.eq` / `f64.eq` |
+| `x.ne(y)` | `i32.ne` / `i64.ne` / `f32.ne` / `f64.ne` |
+
+Integer-specific:
+
+| Expression | WAT instruction |
+|------------|-----------------|
+| `x.and(y)` | `i32.and` / `i64.and` |
+| `x.or(y)` | `i32.or` / `i64.or` |
+| `x.xor(y)` | `i32.xor` / `i64.xor` |
+| `x.shl(y)` | `i32.shl` / `i64.shl` |
+| `x.shr_s(y)` | `i32.shr_s` / `i64.shr_s` |
+| `x.shr_u(y)` | `i32.shr_u` / `i64.shr_u` |
+| `x.rotl(y)` | `i32.rotl` / `i64.rotl` |
+| `x.rotr(y)` | `i32.rotr` / `i64.rotr` |
+
+Float-specific:
+
+| Expression | WAT instruction |
+|------------|-----------------|
+| `x.div(y)` | `f32.div` / `f64.div` |
+| `x.min(y)` | `f32.min` / `f64.min` |
+| `x.max(y)` | `f32.max` / `f64.max` |
+| `x.copysign(y)` | `f32.copysign` / `f64.copysign` |
+
 ---
 
 ### Control flow

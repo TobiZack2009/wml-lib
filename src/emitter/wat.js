@@ -31,6 +31,78 @@
 /** Indentation unit */
 const INDENT = '  ';
 
+/** Primitive type conversion/arithmetic method → WAT instruction tables */
+const PRIMITIVE_METHODS = Object.freeze({
+  identity: Object.freeze({
+    toI32s: 'i32', toI32u: 'i32', toI64s: 'i64', toI64u: 'i64',
+    toF32s: 'f32', toF32u: 'f32', toF64: 'f64', toF32: 'f32',
+  }),
+  unary: Object.freeze({
+    i32: Object.freeze({
+      toI64s: 'i64.extend_i32_s', toI64u: 'i64.extend_i32_u',
+      toF32s: 'f32.convert_i32_s', toF32u: 'f32.convert_i32_u',
+      toF64: 'f64.convert_i32_s', reinterpret: 'f32.reinterpret_i32',
+      extend8: 'i32.extend8_s', extend16: 'i32.extend16_s',
+      clz: 'i32.clz', ctz: 'i32.ctz', popcnt: 'i32.popcnt', eqz: 'i32.eqz',
+    }),
+    i64: Object.freeze({
+      toI32s: 'i32.wrap_i64', toI32u: 'i32.wrap_i64',
+      toF32s: 'f32.convert_i64_s', toF32u: 'f32.convert_i64_u',
+      toF64: 'f64.convert_i64_s', reinterpret: 'f64.reinterpret_i64',
+      extend32: 'i64.extend32_s',
+      clz: 'i64.clz', ctz: 'i64.ctz', popcnt: 'i64.popcnt', eqz: 'i64.eqz',
+    }),
+    f32: Object.freeze({
+      toI32s: 'i32.trunc_f32_s', toI32u: 'i32.trunc_f32_u',
+      toI32sSat: 'i32.trunc_sat_f32_s', toI32uSat: 'i32.trunc_sat_f32_u',
+      toI64s: 'i64.trunc_f32_s', toI64u: 'i64.trunc_f32_u',
+      toF64: 'f64.promote_f32', reinterpret: 'i32.reinterpret_f32',
+      abs: 'f32.abs', neg: 'f32.neg', sqrt: 'f32.sqrt',
+      ceil: 'f32.ceil', floor: 'f32.floor', trunc: 'f32.trunc', nearest: 'f32.nearest',
+    }),
+    f64: Object.freeze({
+      toI32s: 'i32.trunc_f64_s', toI32u: 'i32.trunc_f64_u',
+      toI32sSat: 'i32.trunc_sat_f64_s', toI32uSat: 'i32.trunc_sat_f64_u',
+      toI64s: 'i64.trunc_f64_s', toI64u: 'i64.trunc_f64_u',
+      toF32: 'f32.demote_f64', reinterpret: 'i64.reinterpret_f64',
+      abs: 'f64.abs', neg: 'f64.neg', sqrt: 'f64.sqrt',
+      ceil: 'f64.ceil', floor: 'f64.floor', trunc: 'f64.trunc', nearest: 'f64.nearest',
+    }),
+  }),
+  binary: Object.freeze({
+    i32: Object.freeze({
+      add: 'i32.add', sub: 'i32.sub', mul: 'i32.mul',
+      and: 'i32.and', or: 'i32.or', xor: 'i32.xor',
+      shl: 'i32.shl', shr_s: 'i32.shr_s', shr_u: 'i32.shr_u',
+      rotl: 'i32.rotl', rotr: 'i32.rotr',
+      eq: 'i32.eq', ne: 'i32.ne', lt_s: 'i32.lt_s', gt_s: 'i32.gt_s',
+      le_s: 'i32.le_s', ge_s: 'i32.ge_s',
+    }),
+    i64: Object.freeze({
+      add: 'i64.add', sub: 'i64.sub', mul: 'i64.mul',
+      and: 'i64.and', or: 'i64.or', xor: 'i64.xor',
+      shl: 'i64.shl', shr_s: 'i64.shr_s', shr_u: 'i64.shr_u',
+      rotl: 'i64.rotl', rotr: 'i64.rotr',
+      eq: 'i64.eq', ne: 'i64.ne', lt_s: 'i64.lt_s', gt_s: 'i64.gt_s',
+      le_s: 'i64.le_s', ge_s: 'i64.ge_s',
+    }),
+    f32: Object.freeze({
+      add: 'f32.add', sub: 'f32.sub', mul: 'f32.mul',
+      div: 'f32.div', min: 'f32.min', max: 'f32.max',
+      copysign: 'f32.copysign',
+      eq: 'f32.eq', ne: 'f32.ne', lt: 'f32.lt', gt: 'f32.gt',
+      le: 'f32.le', ge: 'f32.ge',
+    }),
+    f64: Object.freeze({
+      add: 'f64.add', sub: 'f64.sub', mul: 'f64.mul',
+      div: 'f64.div', min: 'f64.min', max: 'f64.max',
+      copysign: 'f64.copysign',
+      eq: 'f64.eq', ne: 'f64.ne', lt: 'f64.lt', gt: 'f64.gt',
+      le: 'f64.le', ge: 'f64.ge',
+    }),
+  }),
+});
+
 export class WatEmitter {
   /**
    * @param {Object} ast - Validated module AST
@@ -1291,10 +1363,44 @@ export class WatEmitter {
       return;
     }
 
+    // Primitive type conversion/arithmetic methods: x.toF64(), x.add(y), etc.
+    if (this._emitPrimitiveMethod(obj, method, args)) return;
+
     // Generic instance method call — emit object then call
     this.emitExpr(obj);
     for (const a of args) this.emitExpr(a);
     this.write(`call $${method} ;; method call`);
+  }
+
+  /** @returns {boolean} true if handled */
+  _emitPrimitiveMethod(obj, method, args) {
+    const watT = this.inferExprWatType(obj);
+    if (!watT || watT === 'funcref' || watT === 'v128') return false;
+
+    // No-op: same-type conversion (e.g. i32.toI32s())
+    if (PRIMITIVE_METHODS.identity[method] === watT) {
+      this.emitExpr(obj);
+      return true;
+    }
+
+    // Unary conversions and operations
+    const instr = PRIMITIVE_METHODS.unary[watT]?.[method];
+    if (instr) {
+      this.emitExpr(obj);
+      this.write(instr);
+      return true;
+    }
+
+    // Binary operations: x.add(y), x.eq(y), etc.
+    const binInstr = PRIMITIVE_METHODS.binary[watT]?.[method];
+    if (binInstr && args.length === 1) {
+      this.emitExpr(obj);
+      this.emitExpr(args[0]);
+      this.write(binInstr);
+      return true;
+    }
+
+    return false;
   }
 
   emitMemoryMethod(memName, method, args, expr) {
@@ -1424,10 +1530,20 @@ export class WatEmitter {
     const typeName = this.structTypeName(expr.object);
     if (typeName) {
       this.write(`struct.get $${typeName} $${expr.field}`);
-    } else {
-      // Unknown — may be a built-in method reference
-      this.write(`struct.get ;; ${expr.field}`);
+      return;
     }
+
+    // Primitive method (no-parens style): x.reinterpret, x.neg, x.toF64
+    const watT = this.inferExprWatType(expr.object);
+    if (watT) {
+      // Identity (no-op): same-type toXxx — value already on stack
+      if (PRIMITIVE_METHODS.identity[expr.field] === watT) return;
+      // Unary conversion/operation
+      const instr = PRIMITIVE_METHODS.unary[watT]?.[expr.field];
+      if (instr) { this.write(instr); return; }
+    }
+    // Unknown — may be a built-in method reference
+    this.write(`struct.get ;; ${expr.field}`);
   }
 
   emitIndex(expr) {
