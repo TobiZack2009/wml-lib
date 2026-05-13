@@ -609,6 +609,117 @@ describe('Nested loops', { skip: skipIfNoBinaryen() }, () => {
   });
 });
 
+// ── Cross-block goto (relooper) ─────────────────────────────────────────────
+
+describe('Cross-block goto', { skip: skipIfNoBinaryen() }, () => {
+  test('goto from later block to earlier block', async () => {
+    const { run } = await instantiate(`
+      @export run(n: i32): i32 {
+        local sum: i32 = 0;
+        local i: i32 = 0;
+        loop {
+          { 'check
+            goto 'loop if (i >= n);
+          }
+          { 'loop
+            sum += i;
+            i += 1;
+            goto 'check if (0);
+          }
+        }
+        return sum;
+      }
+    `);
+    // sum of 0..4 = 10
+    assert.equal(run(5), 10);
+    assert.equal(run(0), 0);
+    assert.equal(run(10), 45);
+  });
+
+  test('skip init block on subsequent iterations', async () => {
+    const { run } = await instantiate(`
+      @export run(limit: i32): i32 {
+        local counter: i32 = 0;
+        loop {
+          { 'init
+            goto 'body if (counter != 0);
+            // First iteration: init
+            counter = 1;
+          }
+          { 'body
+            // Every iteration: add, then check limit
+            counter += 1;
+            break if (counter >= limit);
+            goto 'init if (0);
+          }
+        }
+        return counter;
+      }
+    `);
+    assert.equal(run(5), 5);
+    assert.equal(run(1), 1);
+    assert.equal(run(10), 10);
+  });
+
+  test('forward goto skips ahead', async () => {
+    const { run } = await instantiate(`
+      @export run(x: i32): i32 {
+        local result: i32 = 0;
+        loop {
+          { 'first
+            result = 10;
+            goto 'third if (x > 0);
+            result = 20;
+          }
+          { 'second
+            result = 30;
+            goto 'third if (0);
+          }
+          { 'third
+            result += 1;
+            break;
+          }
+        }
+        return result;
+      }
+    `);
+    // x > 0: first → goto third → third → break → 11
+    // x <= 0: first → second → goto third → third → break → 31
+    assert.equal(run(1), 11);
+    assert.equal(run(0), 31);
+  });
+
+  test('multiple cross-block gotos in one loop', async () => {
+    const { run } = await instantiate(`
+      @export run(n: i32): i32 {
+        local a: i32 = 0;
+        local b: i32 = 1;
+        local tmp: i32;
+        loop {
+          { 'check
+            break if (n <= 0);
+            n -= 1;
+            goto 'next if (0);
+          }
+          { 'next
+            tmp = a + b;
+            a = b;
+            b = tmp;
+            goto 'check if (0);
+          }
+        }
+        return a;
+      }
+    `);
+    // Fibonacci: F(0)=0, F(1)=1, F(2)=1, F(5)=5, F(10)=55
+    assert.equal(run(0), 0);
+    assert.equal(run(1), 1);
+    assert.equal(run(2), 1);
+    assert.equal(run(5), 5);
+    assert.equal(run(10), 55);
+  });
+});
+
 // ── Float operations ────────────────────────────────────────────────────────
 
 describe('Float operations', { skip: skipIfNoBinaryen() }, () => {

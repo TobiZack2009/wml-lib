@@ -53,6 +53,8 @@ export class WatEmitter {
     this._labelN = 0;
     /** Current function local type map: name -> wat type string */
     this.currentLocals = new Map();
+    /** Whether we're in relooper mode (cross-block goto) */
+    this._relooperState = null;
 
   }
 
@@ -459,6 +461,10 @@ export class WatEmitter {
     if (locals) this.write(locals);
     // One temp local for store operations
     this.write(`(local $__wml_temp i32)`);
+    // Relooper state local (only used for cross-block goto)
+    if (this._needsRelooper(decl.body ?? [])) {
+      this.write(`(local $__state i32)`);
+    }
 
     // Emit local initializations
     for (const l of decl.locals ?? []) {
@@ -540,11 +546,41 @@ export class WatEmitter {
         break;
 
       case 'GotoStmt':
-        if (stmt.cond) {
-          this.emitExpr(stmt.cond);
-          this.write(`br_if $${stmt.label}`);
+        if (this._relooperState) {
+          const target = this._relooperState.blockStates.get(stmt.label);
+          if (target !== undefined) {
+            // Cross-block goto via state machine
+            if (stmt.cond) {
+              this.emitExpr(stmt.cond);
+              this.write('if');
+              this.indent();
+              this.write(`i32.const ${target}`);
+              this.write('local.set $__state');
+              this.write('br $__loop_head');
+              this.dedent();
+              this.write('end');
+            } else {
+              this.write(`i32.const ${target}`);
+              this.write('local.set $__state');
+              this.write('br $__loop_head');
+            }
+          } else {
+            // Label not found in this loop — emit as regular br
+            if (stmt.cond) {
+              this.emitExpr(stmt.cond);
+              this.write(`br_if $${stmt.label}`);
+            } else {
+              this.write(`br $${stmt.label}`);
+            }
+          }
         } else {
-          this.write(`br $${stmt.label}`);
+          // Simple mode: direct br to label
+          if (stmt.cond) {
+            this.emitExpr(stmt.cond);
+            this.write(`br_if $${stmt.label}`);
+          } else {
+            this.write(`br $${stmt.label}`);
+          }
         }
         break;
 
@@ -686,6 +722,197 @@ export class WatEmitter {
   }
 
   emitLoopStmt(stmt) {
+    if (this._hasCrossBlockGoto(stmt)) {
+      this._emitRelooperLoop(stmt);
+    } else {
+      this._emitSimpleLoop(stmt);
+    }
+  }
+
+  /** Check if any loop in a function body needs relooper mode */
+  _needsRelooper(body) {
+    for (const stmt of body) {
+      if (stmt?.kind === 'LoopStmt' && this._hasCrossBlockGoto(stmt)) return true;
+    }
+    return false;
+  }
+
+  /** Check if any goto in the loop targets a label in a different block */
+  _hasCrossBlockGoto(loopStmt) {
+    const blocks = loopStmt.blocks ?? [];
+    const labelBlocks = new Map();
+    blocks.forEach((block, idx) => {
+      for (const lbl of block.labels ?? []) {
+        labelBlocks.set(lbl.label, idx);
+      }
+    });
+    for (let blockIdx = 0; blockIdx < blocks.length; blockIdx++) {
+      const gotos = this._collectGotos(blocks[blockIdx].stmts ?? []);
+      for (const g of gotos) {
+        const target = labelBlocks.get(g.label);
+        if (target !== undefined && target !== blockIdx) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Recursively collect all GotoStmt nodes (stops at nested loops) */
+  _collectGotos(stmts) {
+    const gotos = [];
+    for (const stmt of stmts) {
+      if (!stmt) continue;
+      if (stmt.kind === 'GotoStmt') {
+        gotos.push(stmt);
+      } else if (stmt.kind === 'IfStmt') {
+        gotos.push(...this._collectGotos(stmt.then_ ?? []));
+        gotos.push(...this._collectGotos(stmt.else_ ?? []));
+      } else if (stmt.kind === 'TryStmt') {
+        gotos.push(...this._collectGotos(stmt.body ?? []));
+        for (const c of stmt.catches ?? []) {
+          gotos.push(...this._collectGotos(c.body ?? []));
+        }
+      } else if (stmt.kind === 'GotoTableStmt') {
+        // br_table targets are direct label references, handled separately
+      } else if (stmt.kind === 'ExprStmt') {
+        gotos.push(...this._exprGotos(stmt.expr));
+      }
+      // LoopStmt: inner loops have their own scope — excluded
+    }
+    return gotos;
+  }
+
+  /** Collect gotos from expressions that contain statements */
+  _exprGotos(expr) {
+    if (!expr) return [];
+    if (expr.kind === 'IfExpr') {
+      return [
+        ...this._collectGotos(expr.then_ ?? []),
+        ...this._collectGotos(expr.else_ ?? []),
+      ];
+    }
+    if (expr.kind === 'TryExpr') {
+      const gotos = [...this._collectGotos(expr.body ?? [])];
+      for (const c of expr.catches ?? []) {
+        gotos.push(...this._collectGotos(c.body ?? []));
+      }
+      return gotos;
+    }
+    return [];
+  }
+
+  /** Emit a loop with cross-block goto support via state machine */
+  _emitRelooperLoop(stmt) {
+    const blocks = stmt.blocks ?? [];
+    const numBlocks = blocks.length;
+
+    // Build label → block index map
+    const blockStates = new Map();
+    blocks.forEach((block, idx) => {
+      for (const lbl of block.labels ?? []) {
+        blockStates.set(lbl.label, idx);
+      }
+    });
+
+    // Set relooper context for emitGotoStmt
+    const prevState = this._relooperState;
+    this._relooperState = { blockStates, numBlocks };
+
+    this.write('(block $__loop_exit');
+    this.indent();
+
+    // Initialize state to 0 (first block) — runs once on loop entry
+    this.write('i32.const 0');
+    this.write('local.set $__state');
+
+    this.write('(loop $__loop_head');
+    this.indent();
+
+    // 0$ is outer most target. 1$ is inside 0$, 2 inside 1,  etc.
+    //      $__default is inside everything.
+    //   (block $__default
+    //     (block $0
+    //       (block $1
+    //         (block $2
+    //           ...
+    //             (block $(N-1)
+    //               (block $__dispatch
+    //                 (br_table $0 $1 ... $(N-1) $__default (local.get $__state))
+    //               )
+    //             )
+    //             ;; Block N-1 code
+    //           ...
+    //         ;; Block 2 code
+    //         )
+    //       ;; Block 1 code
+    //       )
+    //     ;; Block 0 code
+    //     )
+    //   )
+    //   br $__loop_exit   ;; default/unknown state
+
+    // Phase 1: Open all nesting blocks (outermost to innermost)
+    this.write('(block $__default');
+    this.indent();
+    for (let i = 0; i < numBlocks; i++) {
+      this.write(`(block $${i}`);
+      this.indent();
+    }
+    // Innermost dispatch
+    this.write('(block $__dispatch');
+    this.indent();
+
+    // br_table dispatcher
+    const targets = [];
+    for (let i = 0; i < numBlocks; i++) targets.push(`$${i}`);
+    targets.push('$__default');
+    this.write(`(br_table ${targets.join(' ')} (local.get $__state))`);
+
+    // Close dispatch
+    this.dedent();
+    this.write(')'); // end $__dispatch
+
+    // Phase 2: Close blocks in reverse, emitting code for each
+    for (let i = numBlocks - 1; i >= 0; i--) {
+      // Close this block's wrapper
+      this.dedent();
+      this.write(')'); // end $(block i) wrapper
+
+      // Emit this block's statements
+      for (const s of blocks[i].stmts ?? []) {
+        this.emitStmt(s);
+      }
+
+      // Fall through — loop back to dispatcher
+      // The loop continues until an explicit break targets $__loop_exit
+      if (i < numBlocks - 1) {
+        // Set state to next block number and continue loop
+        this.write(`i32.const ${i + 1}`);
+        this.write('local.set $__state');
+      } else {
+        // Last block: loop back to first block
+        this.write('i32.const 0');
+        this.write('local.set $__state');
+      }
+      this.write('br $__loop_head');
+    }
+
+    // Close $__default
+    this.dedent();
+    this.write(')'); // end $__default
+
+    // Default/unknown state: exit
+    this.write('br $__loop_exit');
+
+    this.dedent();
+    this.write(')'); // end loop
+    this.dedent();
+    this.write(')'); // end block __loop_exit
+
+    this._relooperState = prevState;
+  }
+
+  /** Emit a loop without cross-block gotos (simple sibling blocks) */
+  _emitSimpleLoop(stmt) {
     // WML loop { { 'label ... } } compiles to nested WAT blocks + loop:
     //
     //   (block $__loop_exit

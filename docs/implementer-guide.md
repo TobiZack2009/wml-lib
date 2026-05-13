@@ -284,18 +284,90 @@ end
 
 **`~` operator** — emits `i32.const -1; i32.xor` (XOR with all-ones mask).
 
-**Loops:** WML's `loop { { 'label ... } }` compiles to nested WAT `block`/`loop`:
+**Loops:** WML's `loop { { 'label ... } }` compiles to WAT `block`/`loop`. The emitter
+has two modes depending on whether any `goto` in the loop crosses block boundaries.
+
+### Simple mode
+
+Used when all `goto` targets are within the same block (no cross-block gotos).
+
 ```wat
 (block $__loop_exit
   (loop $__loop_head
-    (block $label
-      ... stmts ...
+    (block $label1
+      (block $label2
+        ... stmts ...
+      )
     )
     br $__loop_head  ;; implicit continue
   )
 )
 ```
+
 `break` → `br $__loop_exit`, `goto 'label` → `br $label`.
+
+Multiple sibling blocks fall through sequentially — after `$label1`'s block closes,
+execution continues into `$label2`'s code (if any), then on to subsequent blocks.
+
+### Relooper mode
+
+Used when a `goto` targets a label in a **different** block. WASM's `br` can only
+target enclosing blocks, so a cross-block goto from one sibling block to another
+would produce invalid WAT. Instead, the emitter uses a state-machine relooper
+pattern driven by a `$__state` local and `br_table`:
+
+```wat
+(block $__loop_exit
+  i32.const 0
+  local.set $__state       ;; initialized once on entry
+
+  (loop $__loop_head
+    (block $__default
+      (block $0            ;; outermost target — block 0 code after $0 closes
+        (block $1          ;; next target — block 1 code after $1 closes
+          (block $2        ;; innermost target — block 2 code after $2 closes
+            (block $__dispatch
+              (br_table $0 $1 $2 $__default (local.get $__state))
+            )
+          )                ;; close $2
+          ;; Block 2 code  (inside $1)
+        )                  ;; close $1
+        ;; Block 1 code    (inside $0)
+      )                    ;; close $0
+      ;; Block 0 code      (inside $__default)
+    )
+    br $__loop_exit         ;; unknown/default state
+  )
+)
+```
+
+How it works:
+
+1. **Dispatcher** — `br_table` reads `$__state` and branches to the corresponding
+   `block`. Because `br` exits the block, execution resumes **after** that block's
+   closing paren, where the block's code is emitted.
+
+2. **Cross-block `goto 'label`** — sets `$__state` to the target block's index
+   and branches back to the loop head:
+   ```wat
+   i32.const <target>
+   local.set $__state
+   br $__loop_head
+   ```
+
+3. **Block fall-through** — after a block's statements, sets `$__state` to the
+   next block index and loops back. The last block wraps around to index 0.
+
+4. **`break`** — unchanged from simple mode: `br $__loop_exit`.
+
+Detection is handled by `_hasCrossBlockGoto(loopStmt)` which scans all `GotoStmt`
+nodes in the loop body and checks whether any target a different block index.
+The `$__state` local is only emitted for functions that contain at least one
+relooper loop (checked by `_needsRelooper(body)`).
+
+**WAT structural constraint:** Blocks are nested outermost-first (block 0 wraps
+all others) so that `br_table $0` correctly exits the outermost block and lands
+on block 0's code. The nesting order is the reverse of the simple mode.
 
 **Data bytes:** data items are converted to byte arrays via `itemToBytes`. String
 types produce:

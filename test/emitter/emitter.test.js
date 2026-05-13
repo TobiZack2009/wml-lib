@@ -478,6 +478,37 @@ describe('Ref and goto emission', () => {
     assert.ok(contains(wat, 'br_if $top'));
   });
 
+  test('cross-block goto uses relooper state machine', () => {
+    const wat = emit(`f(): () {
+      loop {
+        { 'a nop; }
+        { 'b goto 'a if (1); }
+      }
+    }`);
+    // Cross-block goto must use $__state + br_table, not direct br
+    assert.ok(!contains(wat, 'br $a'), 'should not emit direct br to other block');
+    assert.ok(!contains(wat, 'br_if $a'), 'should not emit direct br_if to other block');
+    assert.ok(contains(wat, 'br_table'), 'should emit br_table dispatcher');
+    assert.ok(contains(wat, 'local.set $__state'), 'should set relooper state');
+  });
+
+  test('cross-block goto inside if uses relooper', () => {
+    const wat = emit(`f(): () {
+      loop {
+        { 'a nop; }
+        { 'b if (1) { goto 'a; } }
+      }
+    }`);
+    assert.ok(contains(wat, 'br_table'), 'should emit br_table dispatcher');
+    assert.ok(!contains(wat, 'br $a'), 'should not emit direct br to other block');
+  });
+
+  test('same-block goto still uses direct br', () => {
+    const wat = emit("f(): () { loop { { 'top goto 'top if (0); } } }");
+    assert.ok(contains(wat, 'br_if $top'), 'same-block goto uses direct br');
+    assert.ok(!contains(wat, 'br_table'), 'no relooper for same-block goto');
+  });
+
   test('ref function', () => {
     const wat = emit('f(x: i32): i32 { return x; }\ng(): funcref { return ref(f); }');
     assert.ok(contains(wat, 'ref.func'));

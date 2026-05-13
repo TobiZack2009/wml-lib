@@ -720,7 +720,27 @@ loop {
 
 Labels are scoped to their loop. `goto` cannot target a label in an outer loop.
 
-Multiple blocks fall through between each other:
+**Cross-block goto:** a `goto` can target a label in a **different** block of the
+same loop. This is valid WML — the compiler automatically uses a state-machine
+relooper pattern to make it work in WASM:
+
+```wml
+loop {
+  { 'check
+    goto 'body if (counter >= limit);    // skip init block
+  }
+  { 'init
+    counter = 0;
+  }
+  { 'body
+    counter += 1;
+    break if (counter >= limit);
+    goto 'check if (0);                   // back to check
+  }
+}
+```
+
+Multiple blocks fall through sequentially between each other:
 
 ```wml
 loop {
