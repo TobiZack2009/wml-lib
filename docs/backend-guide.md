@@ -596,8 +596,11 @@ log(msg: i32): () { nop; }
 // Import
 @import("env", "console_log") consoleLog(ptr: i32, len: i32): ();
 
-// Export
+// Export (uses declaration name)
 @export add(a: i32, b: i32): i32 { return a + b; }
+
+// Export with custom WASM export name
+@export("customAdd") add(a: i32, b: i32): i32 { return a + b; }
 
 // Start function (runs on module instantiation)
 @start init(): () {
@@ -901,6 +904,7 @@ shared memory Mem = 4;  // shared (threads)
 // Import / export
 @import("env","mem") memory Mem = 1;
 @export memory Mem = 4;
+@export("myMem") memory Mem = 4;   // exported as "myMem"
 
 // Load/store
 Mem.load<i32>(ptr)             // i32.load

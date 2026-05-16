@@ -182,6 +182,19 @@ Error recovery strategy:
   pointer type parser strips the `@` prefix to get the memory name.
 - Loop labels `'name` are `LABEL` tokens; `goto 'name` and `break if (cond)` are
   distinct forms parsed in `parseGoto` and `parseBreak`.
+- `@export("customName")` — the `@export` decorator optionally accepts a string
+  argument for a custom export name. Parsed in `parseDecorators()` as:
+  ```js
+  if (this.check(T.LPAREN)) {
+    this.advance();
+    args.push(this.expect(T.STRING_LIT).value);
+    this.expect(T.RPAREN);
+  }
+  ```
+  The emitter uses `isExport.args[0]` when present, falling back to `decl.name`.
+- `expectDeclName()` — helper that accepts both `T.IDENT` and keyword tokens as
+  declaration names (used in `parseMemoryDecl`, `parseTableDecl`, etc.). This
+  enables keyword identifiers like `memory memory = 1;`.
 
 ---
 

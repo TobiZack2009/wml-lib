@@ -52,12 +52,21 @@ single const instruction.
 ### Decorators
 
 ```wml
-@export
+@export                               // export with declaration name
+@export("customName")                 // export with custom export name
 @import("module", "name")
 @start
 @tail
 @debug
 ```
+
+`@export` optionally accepts a string argument to set a custom export name:
+```wml
+@export          add(a: i32): i32 { return a + b; }  // exported as "add"
+@export("myAdd") add(a: i32): i32 { return a + b; }  // exported as "myAdd"
+```
+
+This works on all exportable declarations: functions, memory, tables, globals, and tags.
 
 ### Pragmas
 
@@ -275,6 +284,7 @@ memory Mem = 4..16;     // min 4, max 16 pages
 shared memory Mem = 4;  // shared (threads)
 @import("env","mem") memory Mem = 1;
 @export memory Mem = 4;
+@export("myMem") memory Mem = 4;   // exported as "myMem"
 ```
 
 ---
@@ -413,7 +423,8 @@ localDecl ::= 'local' 'mut'? IDENT ':' typeExpr ('=' expr)? ';'
 ```
 
 Decorators:
-- `@export` — export the function
+- `@export` — export the function (uses its WML name)
+- `@export("customName")` — export with a custom WASM export name
 - `@import("mod","name")` — import (no body)
 - `@start` — call on module instantiation (no params, no return)
 - `@tail` — enable tail calls at all `return tail` sites in this function
