@@ -29,7 +29,7 @@
  * const { ast, errors } = new Parser(tokens, 'module.wml').parse();
  */
 
-import { T } from './tokens.js';
+import { T, KEYWORDS } from './tokens.js';
 import * as AST from './ast.js';
 
 const STMT_RECOVERY = new Set([T.SEMI, T.RBRACE, T.KW_LOCAL, T.KW_GLOBAL,
@@ -85,6 +85,15 @@ export class Parser {
     const tok = this.peek();
     this.error('E001', `Expected '${type}', found '${tok.value || tok.type}'`, tok, hint);
     return { type, value: '', line: tok.line, col: tok.col, file: this.file };
+  }
+
+  /** Accept an identifier or keyword as a declaration name. */
+  expectDeclName() {
+    const tok = this.peek();
+    if (tok.type === T.IDENT || KEYWORDS.has(tok.value)) {
+      return this.advance().value;
+    }
+    return this.expect(T.IDENT).value;
   }
 
   loc(tok) {
@@ -144,7 +153,13 @@ export class Parser {
     while (true) {
       if (this.check(T.AT_EXPORT)) {
         const tok = this.advance();
-        decorators.push({ kind: 'Decorator', name: 'export', args: [], loc: this.loc(tok) });
+        let args = [];
+        if (this.check(T.LPAREN)) {
+          this.advance();
+          args.push(this.expect(T.STRING_LIT).value);
+          this.expect(T.RPAREN);
+        }
+        decorators.push({ kind: 'Decorator', name: 'export', args, loc: this.loc(tok) });
       } else if (this.check(T.AT_IMPORT)) {
         const tok = this.advance();
         this.expect(T.LPAREN);
@@ -216,8 +231,11 @@ export class Parser {
         // Function declaration or memory placement
         return this.parseFuncOrPlacement(decorators, pragmas);
       }
-      // Memory placement: MemName[offset] = ...
       default: {
+        // Also allow keywords as function/placement names
+        if (KEYWORDS.has(this.peek().value)) {
+          return this.parseFuncOrPlacement(decorators, pragmas);
+        }
         const tok = this.peek();
         this.error('E001', `Unexpected token '${tok.value || tok.type}' at top level`, tok);
         this.skipTo(DECL_RECOVERY);
@@ -242,7 +260,7 @@ export class Parser {
   parseMemoryDecl(decorators) {
     const isShared = !!this.eat(T.KW_SHARED);
     const tok = this.advance(); // consume 'memory'
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectDeclName();
     this.expect(T.ASSIGN);
     const min = parseInt(this.expect(T.INT_LIT).value, 10);
     let max = null;
@@ -256,7 +274,7 @@ export class Parser {
   parseTableDecl(decorators) {
     const isShared = !!this.eat(T.KW_SHARED);
     const tok = this.advance(); // consume 'table'
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectDeclName();
     this.expect(T.COLON);
     this.expect(T.LBRACKET);
     const elemType = this.parseTypeExpr();
@@ -274,7 +292,7 @@ export class Parser {
   parseGlobalDecl(decorators) {
     const tok = this.advance(); // consume 'global'
     const isMut = !!this.eat(T.KW_MUT);
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectDeclName();
     this.expect(T.COLON);
     const typeExpr = this.parseTypeExpr();
     let init = null;
@@ -287,7 +305,7 @@ export class Parser {
 
   parseDataDecl() {
     const tok = this.advance(); // consume 'data'
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectDeclName();
     let dataType = null;
     if (this.eat(T.COLON)) {
       dataType = this.parseDataType();
@@ -300,8 +318,8 @@ export class Parser {
 
   parseElemDecl() {
     const tok = this.advance(); // consume 'elem'
-    const isDeclare = this.peek().value === 'declare' && this.eat(T.IDENT) != null;
-    const name = isDeclare ? 'declare' : this.expect(T.IDENT).value;
+    const isDeclare = this.peekType() === T.KW_DECLARE && this.eat(T.KW_DECLARE) != null;
+    const name = isDeclare ? 'declare' : this.expectDeclName();
     let elemType = null;
     if (this.eat(T.COLON)) {
       elemType = this.parseTypeExpr();
@@ -315,7 +333,7 @@ export class Parser {
 
   parseTagDecl(decorators) {
     const tok = this.advance(); // consume 'tag'
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectDeclName();
     this.expect(T.COLON);
     this.expect(T.LPAREN);
     const params = [];

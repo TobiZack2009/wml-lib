@@ -301,7 +301,8 @@ export class WatEmitter {
     if (isImport) {
       this.write(`(memory $${decl.name} (import "${isImport.args[0]}" "${isImport.args[1]}") ${decl.min}${max})`);
     } else {
-      const exportStr = isExport ? ` (export "${decl.name}")` : '';
+      const exportName = isExport?.args?.length > 0 ? isExport.args[0] : decl.name;
+      const exportStr = isExport ? ` (export "${exportName}")` : '';
       this.write(`(memory $${decl.name}${exportStr}${shared} ${decl.min}${max})`);
     }
   }
@@ -318,7 +319,8 @@ export class WatEmitter {
     if (isImport) {
       this.write(`(table $${decl.name} (import "${isImport.args[0]}" "${isImport.args[1]}") ${decl.min}${max} ${elemType})`);
     } else {
-      const exportStr = isExport ? ` (export "${decl.name}")` : '';
+      const exportName = isExport?.args?.length > 0 ? isExport.args[0] : decl.name;
+      const exportStr = isExport ? ` (export "${exportName}")` : '';
       this.write(`(table $${decl.name}${exportStr} ${decl.min}${max} ${elemType})`);
     }
   }
@@ -337,7 +339,8 @@ export class WatEmitter {
       return;
     }
 
-    const exportStr = isExport ? ` (export "${decl.name}")` : '';
+    const exportName = isExport?.args?.length > 0 ? isExport.args[0] : decl.name;
+    const exportStr = isExport ? ` (export "${exportName}")` : '';
     if (decl.init) {
       this.write(`(global $${decl.name}${exportStr} ${typeStr}`);
       this.indent();
@@ -494,7 +497,8 @@ export class WatEmitter {
       this.write(`(tag $${decl.name} (import "${isImport.args[0]}" "${isImport.args[1]}") (param ${params}))`);
       return;
     }
-    const exportStr = isExport ? ` (export "${decl.name}")` : '';
+    const exportName = isExport?.args?.length > 0 ? isExport.args[0] : decl.name;
+    const exportStr = isExport ? ` (export "${exportName}")` : '';
     this.write(`(tag $${decl.name}${exportStr} (param ${params}))`);
   }
 
@@ -532,7 +536,8 @@ export class WatEmitter {
       this.currentTypeMap.set(l.name, l.typeExpr);
     }
 
-    const exportStr = isExport ? ` (export "${decl.name}")` : '';
+    const exportName = isExport?.args?.length > 0 ? isExport.args[0] : decl.name;
+    const exportStr = isExport ? ` (export "${exportName}")` : '';
     const params    = (decl.params ?? []).map(p => `(param $${p.name} ${this.watType(p.typeExpr)})`).join(' ');
     const results   = this.emitResultTypes(decl.results ?? []);
     const locals    = (decl.locals ?? []).map(l => `(local $${l.name} ${this.watType(l.typeExpr)})`).join(' ');

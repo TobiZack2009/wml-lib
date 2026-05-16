@@ -1,0 +1,383 @@
+//
+// Pool-based memory allocator for WML
+//
+// Architecture:
+//   - 8 fixed-size pools (16, 32, 64, 128, 256, 512, 1024, 2048 bytes)
+//   - Each pool has a singly-linked free list of blocks
+//   - Pools expand by allocating 64KB pages from the managed heap
+//   - Allocations larger than 2044 bytes use a separate bump allocator
+//   - Block headers store the pool index for O(1) free()
+//
+// Memory layout:
+//   [Pool metadata region]
+//   [Pool pages]
+//   [Large allocations]
+//
+
+@export memory Mem = 64;
+
+// ── Constants ───────────────────────────────────────────────
+global HDR: i32 = 4;
+global LHDR: i32 = 8;
+global TAG_BIG: i32 = 0xFF;
+global NPOOL: i32 = 8;
+global META: i32 = 20;
+global PGSZ: i32 = 65536;
+
+global B00: i32 = 16;
+global B01: i32 = 32;
+global B02: i32 = 64;
+global B03: i32 = 128;
+global B04: i32 = 256;
+global B05: i32 = 512;
+global B06: i32 = 1024;
+global B07: i32 = 2048;
+
+// ── Heap state ──────────────────────────────────────────────
+global mut g_base: i32 = 0;
+global mut g_limit: i32 = 0;
+global mut g_brk: i32 = 0;
+global mut g_large: i32 = 0;
+global mut g_ready: i32 = 0;
+
+// ── Helpers ─────────────────────────────────────────────────
+
+// Compute address of a pool metadata field (stride=20, 5 i32 fields)
+poolField(pool: i32, field: i32): i32 {
+  return g_base + pool * 20 + field * 4;
+}
+
+// Get block size for a pool index
+blockSize(idx: i32): i32 {
+  if (idx == 0) { return 16; }
+  if (idx == 1) { return 32; }
+  if (idx == 2) { return 64; }
+  if (idx == 3) { return 128; }
+  if (idx == 4) { return 256; }
+  if (idx == 5) { return 512; }
+  if (idx == 6) { return 1024; }
+  return 2048;
+}
+
+// Find pool index for size n (returns -1 if too large)
+findPool(n: i32): i32 {
+  local need: i32 = n + 4;
+  if (need <= 16) { return 0; }
+  if (need <= 32) { return 1; }
+  if (need <= 64) { return 2; }
+  if (need <= 128) { return 3; }
+  if (need <= 256) { return 4; }
+  if (need <= 512) { return 5; }
+  if (need <= 1024) { return 6; }
+  if (need <= 2048) { return 7; }
+  return -1;
+}
+
+// Grow pool by allocating one 64KB page and adding blocks to its free list
+growPool(idx: i32): i32 {
+  local bsize: i32;
+  local pageAddr: i32;
+  local newBrk: i32;
+  local deficit: i32;
+  local pages: i32;
+  local oldSz: i32;
+  local addr: i32;
+  local pageEnd: i32;
+  local last: i32;
+  local nxt: i32;
+  local oldHead: i32;
+  local pc: i32;
+  local fc: i32;
+
+  bsize = blockSize(idx);
+  pageAddr = g_brk;
+  newBrk = g_brk + 65536;
+
+  if (newBrk > g_limit) {
+    deficit = newBrk - g_limit;
+    pages = (deficit + 65535) / 65536;
+    oldSz = Mem.grow(pages);
+    if (oldSz < 0) { return 0; }
+    g_limit += pages * 65536;
+  }
+  g_brk = newBrk;
+
+  // Find last block address on page
+  addr = pageAddr;
+  pageEnd = pageAddr + 65536;
+  loop {
+    { 'walk
+      nxt = addr + bsize;
+      break if (nxt >= pageEnd);
+      addr = nxt;
+      goto 'walk if (0);
+    }
+  }
+  last = addr;
+
+  // Link last block to current free list head
+  oldHead = Mem.load<i32>(poolField(idx, 1));
+  Mem.store<i32>(last, oldHead);
+
+  // Link blocks forward: first -> second -> ... -> last
+  addr = pageAddr;
+  loop {
+    { 'link
+      nxt = addr + bsize;
+      break if (nxt > last);
+      Mem.store<i32>(addr, nxt);
+      addr = nxt;
+      goto 'link if (0);
+    }
+  }
+
+  // Set free list head to first block in page
+  Mem.store<i32>(poolField(idx, 1), pageAddr);
+
+  // Increment page count
+  pc = Mem.load<i32>(poolField(idx, 2));
+  Mem.store<i32>(poolField(idx, 2), pc + 1);
+
+  // Increment free block count
+  fc = Mem.load<i32>(poolField(idx, 4));
+  Mem.store<i32>(poolField(idx, 4), fc + 65536 / bsize);
+
+  return pageAddr;
+}
+
+// ── Public API ───────────────────────────────────────────────
+
+// Initialize the allocator
+@export heap_init(start: i32, size: i32): () {
+  local i: i32;
+
+  g_base = start;
+  g_limit = start + size;
+  g_brk = start + 8 * 20;
+  g_large = g_brk;
+  g_ready = 1;
+
+  i = 0;
+  loop {
+    { 'init
+      break if (i >= 8);
+      Mem.store<i32>(poolField(i, 0), blockSize(i));
+      Mem.store<i32>(poolField(i, 1), 0);
+      Mem.store<i32>(poolField(i, 2), 0);
+      Mem.store<i32>(poolField(i, 3), 0);
+      Mem.store<i32>(poolField(i, 4), 0);
+      i += 1;
+      goto 'init if (0);
+    }
+  }
+}
+
+// Allocate memory. Returns pointer or 0 on failure.
+@export wmalloc(n: i32): i32 {
+  local pool: i32;
+  local head: i32;
+  local addr: i32;
+  local next: i32;
+  local used: i32;
+  local fcnt: i32;
+  local allocSize: i32;
+  local result: i32;
+  local newLarge: i32;
+  local deficit: i32;
+  local pages: i32;
+  local oldSz: i32;
+
+  if (!g_ready) { return 0; }
+  if (n <= 0) { return 0; }
+
+  pool = findPool(n);
+  if (pool >= 0) {
+    loop {
+      { 'tryPool
+        head = Mem.load<i32>(poolField(pool, 1));
+        break if (head != 0);
+        addr = growPool(pool);
+        if (addr == 0) { return 0; }
+        goto 'tryPool if (0);
+      }
+    }
+
+    next = Mem.load<i32>(head);
+    Mem.store<i32>(poolField(pool, 1), next);
+
+    Mem.store<i32>(head, pool);
+
+    used = Mem.load<i32>(poolField(pool, 3));
+    fcnt = Mem.load<i32>(poolField(pool, 4));
+    Mem.store<i32>(poolField(pool, 3), used + 1);
+    Mem.store<i32>(poolField(pool, 4), fcnt - 1);
+
+    return head + 4;
+  }
+
+  // Large allocation — bump pointer
+  allocSize = n + 8;
+  result = g_large;
+  newLarge = g_large + allocSize;
+  if (newLarge > g_limit) {
+    deficit = newLarge - g_limit;
+    pages = (deficit + 65535) / 65536;
+    oldSz = Mem.grow(pages);
+    if (oldSz < 0) { return 0; }
+    g_limit += pages * 65536;
+  }
+  g_large = newLarge;
+
+  Mem.store<i32>(result, 255);
+  Mem.store<i32>(result + 4, allocSize);
+
+  return result + 8;
+}
+
+// Free previously allocated memory
+@export wfree(ptr: i32): () {
+  local header: i32;
+  local blk: i32;
+  local pool: i32;
+  local head: i32;
+  local used: i32;
+  local fcnt: i32;
+
+  if (ptr == 0 || !g_ready) { return; }
+
+  header = ptr - 4;
+  blk = Mem.load<i32>(header);
+
+  if (blk == 255) { return; }
+
+  pool = blk;
+  if (pool < 0 || pool >= 8) { return; }
+
+  head = Mem.load<i32>(poolField(pool, 1));
+  Mem.store<i32>(header, head);
+  Mem.store<i32>(poolField(pool, 1), header);
+
+  used = Mem.load<i32>(poolField(pool, 3));
+  fcnt = Mem.load<i32>(poolField(pool, 4));
+  Mem.store<i32>(poolField(pool, 3), used - 1);
+  Mem.store<i32>(poolField(pool, 4), fcnt + 1);
+}
+
+// Reallocate memory
+@export wrealloc(ptr: i32, newSize: i32): i32 {
+  local header: i32;
+  local blk: i32;
+  local oldSize: i32;
+  local pool: i32;
+  local bsize: i32;
+  local usable: i32;
+  local newPtr: i32;
+  local copySize: i32;
+  local i: i32;
+
+  if (ptr == 0) { return wmalloc(newSize); }
+  if (!g_ready) { return 0; }
+  if (newSize <= 0) { wfree(ptr); return 0; }
+
+  header = ptr - 4;
+  blk = Mem.load<i32>(header);
+
+  if (blk == 255) {
+    oldSize = Mem.load<i32>(header + 4);
+    if (newSize + 8 <= oldSize) { return ptr; }
+    newPtr = wmalloc(newSize);
+    if (newPtr == 0) { return 0; }
+    copySize = oldSize - 8;
+    if (newSize < copySize) { copySize = newSize; }
+    i = 0;
+    loop {
+      { 'cpLarge
+        break if (i >= copySize);
+        Mem.store<u8>(newPtr + i, Mem.load<u8>(ptr + i));
+        i += 1;
+        goto 'cpLarge if (0);
+      }
+    }
+    return newPtr;
+  }
+
+  pool = blk;
+  bsize = blockSize(pool);
+  usable = bsize - 4;
+
+  if (newSize <= usable) { return ptr; }
+
+  newPtr = wmalloc(newSize);
+  if (newPtr == 0) { return 0; }
+  i = 0;
+  loop {
+    { 'cpPool
+      break if (i >= usable);
+      Mem.store<u8>(newPtr + i, Mem.load<u8>(ptr + i));
+      i += 1;
+      goto 'cpPool if (0);
+    }
+  }
+  wfree(ptr);
+  return newPtr;
+}
+
+// Allocate zeroed memory
+@export wcalloc(count: i32, size: i32): i32 {
+  local total: i32;
+  local ptr: i32;
+  local i: i32;
+
+  total = count * size;
+  ptr = wmalloc(total);
+  if (ptr == 0) { return 0; }
+  i = 0;
+  loop {
+    { 'zero
+      break if (i >= total);
+      Mem.store<u8>(ptr + i, 0);
+      i += 1;
+      goto 'zero if (0);
+    }
+  }
+  return ptr;
+}
+
+// Return heap statistics: (totalBytes, usedBytes, freeBlocks)
+@export heap_stats(): (i32, i32, i32) {
+  local total: i32;
+  local used: i32;
+  local freeBlks: i32;
+  local i: i32;
+  local pc: i32;
+  local uc: i32;
+  local fc: i32;
+  local bsize: i32;
+  local poolBytes: i32;
+
+  total = 0;
+  used = 0;
+  freeBlks = 0;
+  i = 0;
+
+  loop {
+    { 'sum
+      break if (i >= 8);
+      pc = Mem.load<i32>(poolField(i, 2));
+      uc = Mem.load<i32>(poolField(i, 3));
+      fc = Mem.load<i32>(poolField(i, 4));
+      bsize = blockSize(i);
+      total += pc * 65536;
+      used += uc * bsize;
+      freeBlks += fc;
+      i += 1;
+      goto 'sum if (0);
+    }
+  }
+
+  poolBytes = total;
+  total = g_brk - (g_base + 8 * 20);
+  used += total - poolBytes;
+
+  return (total, used, freeBlks);
+}

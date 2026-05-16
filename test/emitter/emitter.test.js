@@ -89,6 +89,13 @@ describe('Function emission', () => {
     assert.ok(contains(wat, '"f"'), 'Export name should be quoted string');
   });
 
+  test('@export("customName") exports with custom name', () => {
+    const wat = emit('@export("myFunc") fn(): i32 { return 0; }');
+    assert.ok(contains(wat, 'export'), 'export keyword should appear');
+    assert.ok(contains(wat, '"myFunc"'), 'Custom export name should appear');
+    assert.ok(!contains(wat, '"fn"'), 'Original name should not be exported');
+  });
+
   test('@import emits import', () => {
     const wat = emit('@import("env","log") log(n: i32): ();');
     assert.ok(contains(wat, 'import'), 'import keyword should appear');
@@ -327,6 +334,18 @@ describe('Memory emission', () => {
     assert.ok(contains(wat, 'shared'));
   });
 
+  test('@export("customName") memory exports with custom name', () => {
+    const wat = emit('@export("myMem") memory X = 4;');
+    assert.ok(contains(wat, 'export'), 'export keyword should appear');
+    assert.ok(contains(wat, '"myMem"'), 'Custom export name should appear');
+  });
+
+  test('@export("memory") memory memory = 1; — keyword name works', () => {
+    const wat = emit('@export("memory") memory memory = 1;');
+    assert.ok(contains(wat, '$memory'), 'Internal name should be $memory');
+    assert.ok(contains(wat, '(export "memory")'), 'Export name should be "memory"');
+  });
+
   test('global appears', () => {
     const wat = emit('global counter: i32 = 0;');
     assert.ok(contains(wat, 'global'));
@@ -336,6 +355,12 @@ describe('Memory emission', () => {
   test('mutable global uses mut', () => {
     const wat = emit('global mut counter: i32 = 0;');
     assert.ok(contains(wat, '(mut i32)'));
+  });
+
+  test('@export("customName") global exports with custom name', () => {
+    const wat = emit('@export("myGlobal") global g: i32 = 42;');
+    assert.ok(contains(wat, 'export'), 'export keyword should appear');
+    assert.ok(contains(wat, '"myGlobal"'), 'Custom export name');
   });
 });
 
@@ -430,6 +455,12 @@ describe('Tag and exception emission', () => {
     const wat = emit('@export tag AppError: (i32);');
     assert.ok(contains(wat, 'export'));
     assert.ok(contains(wat, '"AppError"'));
+  });
+
+  test('@export("customName") tag exports with custom name', () => {
+    const wat = emit('@export("myTag") tag T: (i32);');
+    assert.ok(contains(wat, 'export'));
+    assert.ok(contains(wat, '"myTag"'));
   });
 });
 

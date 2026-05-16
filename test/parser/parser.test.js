@@ -67,6 +67,13 @@ describe('Function declarations', () => {
     assert.ok(decl.decorators.some(d => d.name === 'export'));
   });
 
+  test('@export("customName") decorator with export name arg', () => {
+    const decl = firstDecl('@export("myFunc") fn(a: i32): i32 { return a; }');
+    const exp = decl.decorators.find(d => d.name === 'export');
+    assert.ok(exp, 'export decorator should exist');
+    assert.equal(exp.args[0], 'myFunc', 'Custom export name should be stored');
+  });
+
   test('@import decorator', () => {
     const decl = firstDecl('@import("env","log") log(n: i32): ();');
     assert.ok(decl.decorators.some(d => d.name === 'import'));
@@ -198,6 +205,20 @@ describe('Memory, table, global declarations', () => {
   test('shared memory', () => {
     const decl = firstDecl('shared memory Mem = 4;');
     assert.equal(decl.isShared, true);
+    assert.equal(decl.name, 'Mem');
+  });
+
+  test('memory named with keyword "memory" works', () => {
+    const decl = firstDecl('memory memory = 1;');
+    assert.equal(decl.name, 'memory');
+  });
+
+  test('@export("memory") memory memory = 1; keyword name + custom export', () => {
+    const decl = firstDecl('@export("memory") memory memory = 1;');
+    assert.equal(decl.name, 'memory');
+    const exp = decl.decorators.find(d => d.name === 'export');
+    assert.ok(exp, 'export decorator should exist');
+    assert.equal(exp.args[0], 'memory', 'Custom export name');
   });
 
   test('table declaration', () => {
